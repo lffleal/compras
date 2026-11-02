@@ -1,0 +1,18 @@
+{
+  "name": "Compras",
+  "short_name": "Compras",
+  "description": "Lista de compras partilhada, com produtos habituais e alertas de preço Pingo Doce vs Continente.",
+  "id": "/compras/",
+  "start_url": "/compras/",
+  "scope": "/compras/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "pt-PT",
+  "background_color": "#F1F4EF",
+  "theme_color": "#2E6B3C",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
