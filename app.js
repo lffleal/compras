@@ -246,47 +246,60 @@ function openSheet(html, onMount) {
 function closeSheet() { catalogOpen = false; $('sheet-root').innerHTML = ''; }
 
 /* ---------- produtos por secção ---------- */
-let catalogOpen = false, catFilter = '';
+let catalogOpen = false, catFilter = '', catMode = 'meus';
+const myProds = () => Object.values(prods).filter(p => p.name && !p.hidden);
 function catalogBody() {
   const inList = new Set(items.filter(i => !i.done).map(i => i.key));
   const f = norm(catFilter), words = f ? f.split(' ') : [];
   const match = n => words.every(w => norm(n).includes(w));
+  const all = catMode === 'todos';
   let html = '';
   for (const c of CATS) {
     const seen = new Set(), list = [];
-    Object.values(prods).filter(p => p.cat === c.id && p.name && !p.hidden).sort((a, b) => (b.uses || 0) - (a.uses || 0) || a.name.localeCompare(b.name, 'pt'))
+    myProds().filter(p => p.cat === c.id).sort((a, b) => (b.uses || 0) - (a.uses || 0) || a.name.localeCompare(b.name, 'pt'))
       .forEach(p => { if (!seen.has(p.id)) { seen.add(p.id); list.push({ name: p.name, hab: true }); } });
-    PRODUCTS.filter(p => p.cat === c.id).sort((a, b) => a.name.localeCompare(b.name, 'pt'))
-      .forEach(p => { const k = keyOf(p.name); if (!seen.has(k) && !(prods[k] && prods[k].hidden)) { seen.add(k); list.push({ name: cap(p.name), hab: false }); } });
+    if (all) PRODUCTS.filter(p => p.cat === c.id).sort((a, b) => a.name.localeCompare(b.name, 'pt'))
+      .forEach(p => { const k = keyOf(p.name); if (!seen.has(k) && !prods[k]) { seen.add(k); list.push({ name: cap(p.name), hab: false }); } });
     const shown = list.filter(x => match(x.name));
     if (!shown.length) continue;
-    html += `<section class="catsec" id="cs-${c.id}" style="${cc(c.id)}"><h4><span class="dot"></span>${c.n}</h4><div class="pick">${shown.map(x => `<button type="button" class="${x.hab ? 'hab' : ''}" data-pk="${esc(x.name)}" data-pc="${c.id}" data-lp="cat:${esc(keyOf(x.name))}" aria-pressed="${inList.has(keyOf(x.name))}">${esc(x.name)}</button>`).join('')}</div></section>`;
+    html += `<section class="catsec" id="cs-${c.id}" style="${cc(c.id)}"><h4><span class="dot"></span>${c.n}</h4><div class="pick">${shown.map(x => `<button type="button" class="${x.hab && all ? 'hab' : ''}" data-pk="${esc(x.name)}" data-pc="${c.id}" data-lp="cat:${esc(keyOf(x.name))}" aria-pressed="${inList.has(keyOf(x.name))}">${esc(x.name)}</button>`).join('')}</div></section>`;
   }
-  const hid = Object.values(prods).filter(p => p.hidden && !p.renamedTo && p.name && match(p.name)).sort((a, b) => a.name.localeCompare(b.name, 'pt'));
-  if (hid.length) html += `<details class="catsec"><summary class="hint">Escondidos (${hid.length}) · toca num para voltar a mostrar</summary><div class="pick" style="margin-top:8px">${hid.map(p => `<button type="button" data-unhide="${esc(p.id)}" style="${cc(p.cat)}">${esc(p.name)}</button>`).join('')}</div></details>`;
-  return html || '<p class="hint">Nenhum produto com esse nome. Usa “Novo produto” para o criar.</p>';
+  if (all) {
+    const hid = Object.values(prods).filter(p => p.hidden && !p.renamedTo && p.name && match(p.name)).sort((a, b) => a.name.localeCompare(b.name, 'pt'));
+    if (hid.length) html += `<details class="catsec"><summary class="hint">Escondidos (${hid.length}) · toca num para voltar a mostrar</summary><div class="pick" style="margin-top:8px">${hid.map(p => `<button type="button" data-unhide="${esc(p.id)}" style="${cc(p.cat)}">${esc(p.name)}</button>`).join('')}</div></details>`;
+  }
+  if (!html) {
+    if (!all && !f) return '<div class="empty" style="padding:24px 8px"><h3>Ainda não tens produtos</h3><p>Cada produto que pões na lista fica aqui. Escolhe os primeiros no catálogo completo.</p><button type="button" class="btn ghost" data-mode="todos">Abrir catálogo completo</button></div>';
+    return `<p class="hint">Nenhum produto com esse nome.${all ? ' Usa “+ Novo” para o criar.' : ''}</p>${all ? '' : '<button type="button" class="btn ghost" data-mode="todos">Procurar no catálogo completo</button>'}`;
+  }
+  if (!all) html += '<button type="button" class="btn ghost" data-mode="todos">Não está aqui? Ver catálogo completo</button>';
+  return html;
 }
 function refreshCatalog() {
   if (catalogOpen && $('cat-body')) $('cat-body').innerHTML = catalogBody();
   if ($('hab-body')) $('hab-body').innerHTML = habBody();
 }
-function openCatalog() {
+function openCatalog(mode) {
   if (!curList()) return;
+  if (mode === 'meus' || mode === 'todos') catMode = mode;
   catFilter = '';
-  openSheet(`<h3>Produtos</h3>
+  const all = catMode === 'todos', n = myProds().length;
+  openSheet(`<h3>${all ? 'Catálogo completo' : 'Os meus produtos'}</h3>
+    <div class="seg" role="tablist"><button type="button" role="tab" data-mode="meus" aria-selected="${!all}">Os meus (${n})</button><button type="button" role="tab" data-mode="todos" aria-selected="${all}">Catálogo completo</button></div>
     <div class="row"><input id="cat-filter" type="search" placeholder="Filtrar… ex.: iogurte" aria-label="Filtrar produtos" style="flex:3"><button type="button" class="btn ghost" id="cat-new" style="flex:1">+ Novo</button></div>
-    <nav class="cat-jump">${CATS.map(c => `<button type="button" data-jump="${c.id}" style="${cc(c.id)}"><span class="dot"></span>${c.n}</button>`).join('')}</nav>
+    <nav class="cat-jump">${CATS.filter(c => all || myProds().some(p => p.cat === c.id)).map(c => `<button type="button" data-jump="${c.id}" style="${cc(c.id)}"><span class="dot"></span>${c.n}</button>`).join('')}</nav>
     <div id="cat-body" style="display:flex;flex-direction:column;gap:18px">${catalogBody()}</div>
-    <p class="hint">Toca para pôr na lista ou tirar. Mantém o dedo em cima de qualquer produto para lhe mudar o nome (marca, sabor, tamanho), a secção, ou para o esconder. Os teus produtos aparecem primeiro, a negrito.</p>
+    <p class="hint">Toca para pôr na lista ou tirar. Mantém o dedo em cima de um produto para lhe mudar o nome, a secção, ou para o esconder.${all ? ' O que escolheres aqui passa a fazer parte dos teus produtos.' : ''}</p>
     <button class="btn" id="cat-done">Fechar</button>`, root => {
     catalogOpen = true;
     $('cat-filter').addEventListener('input', e => { catFilter = e.target.value; refreshCatalog(); });
     $('cat-done').onclick = closeSheet;
-    root.querySelector('.cat-jump').addEventListener('click', e => { const b = e.target.closest('[data-jump]'); if (!b) return; const el = $('cs-' + b.dataset.jump); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); else toast('Sem produtos nesta secção com esse filtro'); });
+    root.querySelector('.cat-jump').addEventListener('click', e => { const b = e.target.closest('[data-jump]'); if (!b) return; const el = $('cs-' + b.dataset.jump); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); else toast('Sem produtos nesta secção'); });
     $('cat-new').onclick = () => newProduct();
+    root.addEventListener('click', e => { const m = e.target.closest('[data-mode]'); if (m && m.dataset.mode !== catMode) openCatalog(m.dataset.mode); });
     $('cat-body').addEventListener('click', e => {
       const u = e.target.closest('[data-unhide]');
-      if (u) { run(setDoc(doc(db, 'produtos', u.dataset.unhide), { hidden: false }, { merge: true })); toast('Voltou ao catálogo'); return; }
+      if (u) { run(setDoc(doc(db, 'produtos', u.dataset.unhide), { hidden: false }, { merge: true })); toast('Voltou aos teus produtos'); return; }
       const b = e.target.closest('[data-pk]'); if (!b) return;
       b.setAttribute('aria-pressed', toggleProduct(b.dataset.pk, b.dataset.pc));
     });
@@ -490,7 +503,7 @@ document.addEventListener('click', e => {
   else if (t.dataset.act === 'lists') manageLists();
   else if (t.dataset.act === 'menu') openMenu();
   else if (t.dataset.act === 'clear') clearDone();
-  else if (t.dataset.act === 'catalog') openCatalog();
+  else if (t.dataset.act === 'catalog') openCatalog('meus');
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
 

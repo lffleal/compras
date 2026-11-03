@@ -137,6 +137,9 @@ main{padding-block:12px 120px}
 .hab[aria-pressed="true"] .name::after{content:" ✓";color:var(--accent);font-weight:800}
 [data-lp]{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .hab .uses{font-size:.78rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.seg{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:3px;gap:3px}
+.seg button{flex:1;padding:9px 8px;border-radius:9px;font-weight:700;font-size:.9rem;color:var(--muted)}
+.seg button[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgb(0 0 0 / .15)}
 .cat-jump{display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;position:sticky;top:-18px;background:var(--surface);padding-block:8px;margin-top:-8px;z-index:1}
 .cat-jump::-webkit-scrollbar{display:none}
 .cat-jump button{flex:none;display:inline-flex;align-items:center;gap:6px;padding:6px 11px;border-radius:999px;border:1px solid var(--line);font-size:.85rem;font-weight:600}
