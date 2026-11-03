@@ -111,6 +111,7 @@ main{padding-block:12px 120px}
 /* sheets */
 .scrim{position:fixed;inset:0;background:rgb(0 0 0 / .4);z-index:20;display:flex;align-items:flex-end;justify-content:center}
 .sheet{width:100%;max-width:560px;background:var(--surface);border-radius:20px 20px 0 0;padding:18px max(18px,env(safe-area-inset-left,0px)) calc(18px + env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:14px;max-height:90vh;overflow-y:auto}
+.sheet>*{flex-shrink:0}
 .sheet h3{font-family:var(--f-display);font-size:1.3rem;margin:0}
 .sheet h4{margin:4px 0 0;font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .field{display:flex;flex-direction:column;gap:6px}
@@ -132,7 +133,21 @@ main{padding-block:12px 120px}
 .menu .sub{display:block;font-weight:400;font-size:.85rem;color:var(--muted)}
 .hab{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:11px 4px;border-bottom:1px solid var(--line)}
 .hab .name{flex:1}
+.hab[aria-pressed="true"]{background:var(--accent-soft)}
+.hab[aria-pressed="true"] .name::after{content:" ✓";color:var(--accent);font-weight:800}
+[data-lp]{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .hab .uses{font-size:.78rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.cat-jump{display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;position:sticky;top:-18px;background:var(--surface);padding-block:8px;margin-top:-8px;z-index:1}
+.cat-jump::-webkit-scrollbar{display:none}
+.cat-jump button{flex:none;display:inline-flex;align-items:center;gap:6px;padding:6px 11px;border-radius:999px;border:1px solid var(--line);font-size:.85rem;font-weight:600}
+.catsec{display:flex;flex-direction:column;gap:8px;scroll-margin-top:56px}
+.catsec h4{display:flex;align-items:center;gap:8px}
+.pick{display:flex;flex-wrap:wrap;gap:6px}
+.pick button{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;border:1.5px solid var(--line);font-size:.92rem;text-align:left}
+.pick button.hab{font-weight:600}
+.pick button[aria-pressed="true"]{border-color:var(--cc);background:var(--accent-soft);font-weight:700}
+.pick button[aria-pressed="true"]::before{content:"✓";color:var(--cc);font-weight:800}
+#cat-filter{font:inherit;padding:11px 13px;border-radius:12px;border:1.5px solid var(--line);background:var(--bg);color:var(--ink);width:100%}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;font-size:.9rem;z-index:30;max-width:calc(100% - 32px);text-align:center}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .2s ease-out}@keyframes up{from{transform:translateY(30px);opacity:.6}}}
 </style>
@@ -166,6 +181,7 @@ main{padding-block:12px 120px}
       <div class="addbar">
         <form id="add-form" autocomplete="off">
           <input id="add-input" placeholder="Adicionar… ex.: 2 iogurte líquido morango Mimosa" enterkeyhint="done" aria-label="Adicionar produto">
+          <button type="button" class="btn ghost" id="cat-btn" data-act="catalog" aria-label="Ver produtos por secção"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1.2" fill="currentColor"/><circle cx="3.5" cy="12" r="1.2" fill="currentColor"/><circle cx="3.5" cy="18" r="1.2" fill="currentColor"/></svg></button>
           <button class="btn" id="add-btn" aria-label="Adicionar"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
         </form>
         <div class="sugg" id="sugg" hidden></div>

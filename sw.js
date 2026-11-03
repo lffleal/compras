@@ -1,6 +1,6 @@
 // Service worker: guarda a app para abrir rápido e sem rede.
 // Ao publicar uma versão nova, mudar VERSION.
-const VERSION = 'compras-v1';
+const VERSION = 'compras-v8';
 const SHELL = ['./', './index.html', './app.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
