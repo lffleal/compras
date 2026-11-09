@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, query, orderBy, onSnapshot, setDoc, updateDoc, deleteDoc, getDocs, increment, writeBatch } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, query, orderBy, onSnapshot, setDoc, updateDoc, deleteDoc, getDoc, getDocs, increment, writeBatch, arrayUnion, arrayRemove, deleteField } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDz1Fav0Hxf4QWDitFfg7jK5Kq_baUH0fE",
@@ -41,15 +41,10 @@ const PRODUCTS = []; for (const c in DICT) for (const n of DICT[c].split(',')) P
 const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 const cc = c => `--cc:var(${CVAR[c] || '--c-outros'})`;
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
-const eur = v => v.toLocaleString('pt-PT', { style: 'currency', currency: 'EUR' });
-const STORES = {
-  pd: { n: 'Pingo Doce', search: q => 'https://www.google.com/search?q=' + encodeURIComponent('site:pingodoce.pt ' + q) },
-  ct: { n: 'Continente', search: q => 'https://www.continente.pt/pesquisa/?q=' + encodeURIComponent(q) }
-};
 
 /* ---------- estado ---------- */
 let user = null, lists = [], listsLoaded = false, curId = null, items = [], itemsLoaded = false;
-let prods = {}, cfg = { minEuros: 10, minPct: 30 };
+let prods = {}, casaId = null, casa = null;
 let unsub = [], unsubItems = null, selIdx = -1, suggList = [];
 try { curId = localStorage.getItem('compras.cur'); } catch (e) { }
 
@@ -58,7 +53,7 @@ function toast(t) { const el = $('toast'); el.textContent = t; el.hidden = false
 function note(t) { const el = $('note'); el.textContent = t || ''; el.hidden = !t; }
 function onErr(e) {
   const c = e && e.code;
-  if (c === 'permission-denied') note('Esta conta não tem acesso às listas. Confirma o e-mail nas regras do Firestore.');
+  if (c === 'permission-denied') note('Sem acesso a estes dados. Fecha e volta a abrir a app.');
   else if (c === 'resource-exhausted') toast('Limite diário gratuito atingido. Volta a tentar amanhã.');
   else toast('Não foi possível guardar. Tenta outra vez.');
   console.error(e);
@@ -91,26 +86,6 @@ const normCat = (cat, name) => {
   if (cat === 'merc') { const d = dictCat(name); if (d === 'cafe' || d === 'cereais') return d; } // saíram da mercearia
   return CATN[cat] ? cat : (dictCat(name) || LEGACY[cat] || 'merc');
 };
-const qtyMult = q => { const m = String(q || '').match(/^(\d+)(\s*(un|uni|x|emb|pacotes?|latas?|garrafas?))?$/i); return m ? Math.max(1, parseInt(m[1], 10)) : 1; };
-
-/* ---------- preços e alertas ---------- */
-function priceInfo(item) {
-  const p = prods[item.prodId || item.key]; const pr = p && p.prices;
-  if (!pr) return null;
-  const pd = pr.pd && typeof pr.pd.p === 'number' ? pr.pd : null, ct = pr.ct && typeof pr.ct.p === 'number' ? pr.ct : null;
-  if (!pd && !ct) return null;
-  let save = 0, pct = 0;
-  if (pd && ct && ct.p < pd.p) { save = (pd.p - ct.p) * qtyMult(item.qty); pct = (pd.p - ct.p) / pd.p * 100; }
-  return { pd, ct, save, pct };
-}
-function deals() {
-  const out = [];
-  for (const i of items) { if (i.done) continue; const pi = priceInfo(i); if (pi && pi.save > 0) out.push({ i, ...pi }); }
-  const total = out.reduce((s, d) => s + d.save, 0);
-  const big = out.filter(d => d.pct >= cfg.minPct);
-  return { out, total, big, alert: total >= cfg.minEuros || big.length > 0 };
-}
-
 /* ---------- desenho ---------- */
 const curList = () => lists.find(l => l.id === curId);
 const CHECK = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--surface)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
@@ -119,16 +94,9 @@ function renderTabs() {
   $('tabs').innerHTML = lists.map(l => `<button class="tab" data-list="${esc(l.id)}" aria-current="${l.id === curId}">${esc(l.name)}</button>`).join('') +
     `<button class="tab icon" data-act="lists" aria-label="Gerir listas"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>`;
 }
-function priceLine(i) {
-  const pi = priceInfo(i); if (!pi) return '';
-  const parts = [];
-  if (pi.pd) parts.push(`PD ${eur(pi.pd.p)}`);
-  if (pi.ct) parts.push(pi.pct >= cfg.minPct ? `<span class="hot">CT ${eur(pi.ct.p)} −${Math.round(pi.pct)}%</span>` : `CT ${eur(pi.ct.p)}`);
-  return `<span class="price">${parts.join(' · ')}</span>`;
-}
 function itemRow(i) {
   return `<div class="item${i.done ? ' done' : ''}" style="${cc(i.cat)}">
-    <button class="tick" data-tick="${esc(i.id)}" data-lp="item:${esc(i.id)}" aria-pressed="${!!i.done}"><span class="box">${CHECK}</span><span class="txt"><span class="name">${esc(i.name)}</span>${priceLine(i)}</span>${i.qty ? `<span class="qty">${esc(i.qty)}</span>` : ''}</button>
+    <button class="tick" data-tick="${esc(i.id)}" data-lp="item:${esc(i.id)}" aria-pressed="${!!i.done}"><span class="box">${CHECK}</span><span class="txt"><span class="name">${esc(i.name)}</span></span>${i.qty ? `<span class="qty">${esc(i.qty)}</span>` : ''}</button>
     <button class="more" data-edit="${esc(i.id)}" aria-label="Editar ${esc(i.name)}">${DOTS}</button></div>`;
 }
 function render() {
@@ -144,13 +112,7 @@ function render() {
   if (!lists.length) { main.innerHTML = `<div class="empty"><h3>Ainda não há listas</h3><p>Cria a primeira, por exemplo “Pingo Doce” ou “Semana”.</p><button class="btn" data-act="lists">Criar lista</button></div>`; return; }
   if (!itemsLoaded) { main.innerHTML = '<div class="empty"><p>A carregar produtos…</p></div>'; return; }
   let h = '';
-  const d = deals();
-  if (d.alert) {
-    const top = d.big.sort((a, b) => b.pct - a.pct)[0] || d.out.sort((a, b) => b.save - a.save)[0];
-    h += `<div class="deal" role="status"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--deal)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:2px"><path d="M20.6 13.4 12 22l-9-9V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
-      <div><b>Vale a pena ir ao Continente</b><p>Poupas cerca de ${eur(d.total)} em ${d.out.length} ${d.out.length === 1 ? 'produto' : 'produtos'}${top ? `. Maior desconto: ${esc(top.i.name)} (−${Math.round(top.pct)}%)` : ''}.</p></div></div>`;
-  }
-  if (!items.length) { main.innerHTML = h + `<div class="empty"><h3>Lista vazia</h3><p>Escreve o produto como o compras, com marca e sabor: “2 iogurte líquido morango Mimosa”. Da próxima vez basta um toque.</p></div>`; return; }
+  if (!items.length) { main.innerHTML = `<div class="empty"><h3>Lista vazia</h3><p>Escreve o produto como o compras, com marca e sabor: “2 iogurte líquido morango Mimosa”. Da próxima vez basta um toque.</p></div>`; return; }
   const known = new Set(CATS.map(c => c.id));
   for (const c of CATS) {
     const g = todo.filter(i => (known.has(i.cat) ? i.cat : 'merc') === c.id).sort((a, b) => a.name.localeCompare(b.name, 'pt'));
@@ -196,10 +158,10 @@ function showSugg() {
 }
 
 /* ---------- ações ---------- */
-const itemsCol = () => collection(db, 'lists', curId, 'items');
+const itemsCol = () => collection(db, 'casas', casaId, 'lists', curId, 'items');
 function touchProduct(name, cat, inc = 1) {
   const id = keyOf(name);
-  run(setDoc(doc(db, 'produtos', id), { name, cat, uses: increment(inc), lastAt: Date.now(), hidden: false }, { merge: true }));
+  run(setDoc(doc(db, 'casas', casaId, 'produtos', id), { name, cat, uses: increment(inc), lastAt: Date.now(), hidden: false }, { merge: true }));
   return id;
 }
 function addItem(raw, forcedCat) {
@@ -299,7 +261,7 @@ function openCatalog(mode) {
     root.addEventListener('click', e => { const m = e.target.closest('[data-mode]'); if (m && m.dataset.mode !== catMode) openCatalog(m.dataset.mode); });
     $('cat-body').addEventListener('click', e => {
       const u = e.target.closest('[data-unhide]');
-      if (u) { run(setDoc(doc(db, 'produtos', u.dataset.unhide), { hidden: false }, { merge: true })); toast('Voltou aos teus produtos'); return; }
+      if (u) { run(setDoc(doc(db, 'casas', casaId, 'produtos', u.dataset.unhide), { hidden: false }, { merge: true })); toast('Voltou aos teus produtos'); return; }
       const b = e.target.closest('[data-pk]'); if (!b) return;
       b.setAttribute('aria-pressed', toggleProduct(b.dataset.pk, b.dataset.pc));
     });
@@ -307,21 +269,6 @@ function openCatalog(mode) {
 }
 function catGrid(sel) { return `<div class="catgrid">${CATS.map(c => `<button type="button" data-pick="${c.id}" style="${cc(c.id)}" aria-pressed="${c.id === sel}"><span class="dot"></span>${c.n}</button>`).join('')}</div>`; }
 function bindCatGrid(root, set) { root.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => { set(b.dataset.pick); root.querySelectorAll('[data-pick]').forEach(x => x.setAttribute('aria-pressed', x === b)); }); }
-const ago = t => { const d = Math.floor((Date.now() - t) / 864e5); return d <= 0 ? 'hoje' : d === 1 ? 'ontem' : `há ${d} dias`; };
-function storeBlock(key, p, name) {
-  const s = STORES[key], url = (p && p[key + 'Url']) || '', pr = p && p.prices && p.prices[key];
-  return `<div class="store"><span class="sn">${s.n}</span><span class="sp">${pr && typeof pr.p === 'number' ? eur(pr.p) : ''}</span>
-    <span class="sd">${pr && pr.at ? 'Preço online, ' + ago(pr.at) + (pr.promo ? ' · em promoção' : '') : url ? 'Página guardada. O preço aparece após a próxima verificação.' : 'Abre a pesquisa, encontra o produto e cola aqui o link da página dele.'}</span>
-    <input id="u-${key}" type="url" inputmode="url" placeholder="Link do produto no ${s.n}" value="${esc(url)}">
-    <a class="btn ghost small" href="${esc(url || s.search(name))}" target="_blank" rel="noopener" style="grid-column:1/-1">${url ? 'Abrir no ' + s.n : 'Procurar no ' + s.n}</a></div>`;
-}
-const cleanUrl = (v, host) => { v = (v || '').trim(); if (!v) return ''; try { const u = new URL(v); return u.hostname.endsWith(host) ? u.href : null; } catch (e) { return null; } };
-function readLinks() {
-  const pd = cleanUrl($('u-pd').value, 'pingodoce.pt'), ct = cleanUrl($('u-ct').value, 'continente.pt');
-  if (pd === null) { toast('O link do Pingo Doce tem de ser de pingodoce.pt'); return null; }
-  if (ct === null) { toast('O link do Continente tem de ser de continente.pt'); return null; }
-  return { pdUrl: pd, ctUrl: ct };
-}
 function editItem(id) {
   const it = items.find(i => i.id === id); if (!it) return;
   const pid = it.prodId || it.key, p = prods[pid];
@@ -330,14 +277,12 @@ function editItem(id) {
     <div class="field"><label for="ed-name">Produto (marca e variante)</label><input id="ed-name" value="${esc(it.name)}"></div>
     <div class="field"><label for="ed-qty">Quantidade</label><input id="ed-qty" value="${esc(it.qty || '')}" placeholder="ex.: 2, 6 un, 1 kg"></div>
     <div class="field"><span class="l">Secção</span>${catGrid(cat)}</div>
-    <h4>Preços</h4>${storeBlock('pd', p, it.name)}${storeBlock('ct', p, it.name)}
     <div class="row"><button class="btn danger" id="ed-del">Tirar da lista</button><button class="btn" id="ed-save">Guardar</button></div>`, root => {
     bindCatGrid(root, v => cat = v);
     $('ed-save').onclick = () => {
-      const links = readLinks(); if (!links) return;
       const name = cap($('ed-name').value.trim()) || it.name, qty = $('ed-qty').value.trim(), key = keyOf(name);
       run(updateDoc(doc(itemsCol(), id), { name, key, prodId: key, qty, cat }));
-      run(setDoc(doc(db, 'produtos', key), { name, cat, ...links, ...(key !== pid && p ? { uses: increment(p.uses || 1) } : {}) }, { merge: true }));
+      run(setDoc(doc(db, 'casas', casaId, 'produtos', key), { name, cat, hidden: false, ...(key !== pid && p ? { uses: increment(p.uses || 1) } : {}) }, { merge: true }));
       closeSheet();
     };
     $('ed-del').onclick = () => {
@@ -356,18 +301,16 @@ function editProduct(pid, opts = {}) {
   openSheet(`<h3>${esc(p.name)}</h3>
     <div class="field"><label for="pp-name">Nome como o compras (marca, sabor, tamanho)</label><input id="pp-name" value="${esc(p.name)}" placeholder="ex.: Leite Mimosa meio-gordo 1 L"></div>
     <div class="field"><span class="l">Secção</span>${catGrid(cat)}</div>
-    <h4>Preços</h4>${storeBlock('pd', p, p.name)}${storeBlock('ct', p, p.name)}
     <div class="row">${inList ? '' : '<button class="btn ghost" id="pp-add">Pôr na lista</button>'}<button class="btn" id="pp-save">Guardar</button></div>
     <button class="btn danger" id="pp-del">Esconder do catálogo</button>`, root => {
     bindCatGrid(root, v => cat = v);
     const save = () => {
-      const links = readLinks(); if (!links) return null;
       const name = cap($('pp-name').value.trim()) || p.name, key = keyOf(name);
-      if (key === pid) run(setDoc(doc(db, 'produtos', pid), { name, cat, ...links, hidden: false, ...(p.virtual ? { uses: 0 } : {}) }, { merge: true }));
+      if (key === pid) run(setDoc(doc(db, 'casas', casaId, 'produtos', pid), { name, cat, hidden: false, ...(p.virtual ? { uses: 0 } : {}) }, { merge: true }));
       else {
         // mudou o nome: o novo fica com o histórico, o antigo deixa de aparecer
-        run(setDoc(doc(db, 'produtos', key), { name, cat, ...links, hidden: false, uses: increment(p.uses || 0) }, { merge: true }));
-        run(setDoc(doc(db, 'produtos', pid), { name: p.name, cat: p.cat || cat, hidden: true, renamedTo: key }, { merge: true }));
+        run(setDoc(doc(db, 'casas', casaId, 'produtos', key), { name, cat, hidden: false, uses: increment(p.uses || 0) }, { merge: true }));
+        run(setDoc(doc(db, 'casas', casaId, 'produtos', pid), { name: p.name, cat: p.cat || cat, hidden: true, renamedTo: key }, { merge: true }));
       }
       return { name, cat };
     };
@@ -375,7 +318,7 @@ function editProduct(pid, opts = {}) {
     if (!inList) $('pp-add').onclick = () => { const r = save(); if (!r) return; addItem(r.name, r.cat); done(); };
     $('pp-del').onclick = () => {
       if (!armed) { armed = true; $('pp-del').textContent = 'Tocar de novo para esconder'; return; }
-      run(setDoc(doc(db, 'produtos', pid), { name: p.name, cat: p.cat || cat, hidden: true, renamedTo: null }, { merge: true })); toast('Escondido. Podes voltar a mostrá-lo no fim do catálogo.'); done();
+      run(setDoc(doc(db, 'casas', casaId, 'produtos', pid), { name: p.name, cat: p.cat || cat, hidden: true, renamedTo: null }, { merge: true })); toast('Escondido. Podes voltar a mostrá-lo no fim do catálogo.'); done();
     };
   });
 }
@@ -390,7 +333,7 @@ function newProduct() {
     $('np-cancel').onclick = openCatalog;
     $('np-save').onclick = () => {
       const name = cap($('np-name').value.trim()); if (!name) return;
-      run(setDoc(doc(db, 'produtos', keyOf(name)), { name, cat, hidden: false, uses: increment(0) }, { merge: true }));
+      run(setDoc(doc(db, 'casas', casaId, 'produtos', keyOf(name)), { name, cat, hidden: false, uses: increment(0) }, { merge: true }));
       toast('Juntado ao catálogo'); openCatalog();
     };
     $('np-name').focus();
@@ -399,7 +342,7 @@ function newProduct() {
 function habBody() {
   const all = Object.values(prods).filter(p => p.name && !p.hidden && (p.uses || 0) > 0).sort((a, b) => (b.uses || 0) - (a.uses || 0));
   const inList = new Set(items.filter(i => !i.done).map(i => i.key));
-  return all.length ? all.map(p => `<button class="hab" data-hk="${esc(p.id)}" data-lp="prod:${esc(p.id)}" aria-pressed="${inList.has(p.id)}"><span class="dot" style="${cc(p.cat)}"></span><span class="name">${esc(p.name)}</span><span class="uses">${(p.pdUrl ? 'PD ' : '') + (p.ctUrl ? 'CT ' : '')}${p.uses || 0}×</span></button>`).join('') : '<p class="hint">Ainda não há produtos. Adiciona o primeiro na lista.</p>';
+  return all.length ? all.map(p => `<button class="hab" data-hk="${esc(p.id)}" data-lp="prod:${esc(p.id)}" aria-pressed="${inList.has(p.id)}"><span class="dot" style="${cc(p.cat)}"></span><span class="name">${esc(p.name)}</span><span class="uses">${p.uses || 0}×</span></button>`).join('') : '<p class="hint">Ainda não há produtos. Adiciona o primeiro na lista.</p>';
 }
 function toggleProduct(name, cat) {
   const key = keyOf(name), it = items.find(i => i.key === key && !i.done);
@@ -408,7 +351,7 @@ function toggleProduct(name, cat) {
 }
 function openHabituais() {
   openSheet(`<h3>Produtos habituais</h3>
-    <p class="hint">Toca para pôr na lista “${esc(curList() ? curList().name : '')}” ou tirar. Mantém o dedo em cima para editar a secção ou juntar os links do Pingo Doce e do Continente.</p>
+    <p class="hint">Toca para pôr na lista “${esc(curList() ? curList().name : '')}” ou tirar. Mantém o dedo em cima para mudar o nome ou a secção.</p>
     <div id="hab-body">${habBody()}</div>
     <button class="btn" id="hab-done">Fechar</button>`, () => {
     $('hab-done').onclick = closeSheet;
@@ -419,28 +362,15 @@ function openHabituais() {
     });
   });
 }
-function openAlertas() {
-  openSheet(`<h3>Alertas de preço</h3>
-    <p class="hint">Compras no Pingo Doce. A app avisa quando o Continente compensa, se acontecer uma destas coisas:</p>
-    <div class="field"><label for="al-eur">Poupança total na lista de pelo menos (€)</label><input id="al-eur" type="number" inputmode="decimal" min="0" step="0.5" value="${cfg.minEuros}"></div>
-    <div class="field"><label for="al-pct">Ou um produto mais barato pelo menos (%)</label><input id="al-pct" type="number" inputmode="numeric" min="0" max="90" step="1" value="${cfg.minPct}"></div>
-    <p class="hint">Os preços são os das lojas online e são verificados uma vez por dia, só para produtos com link guardado.</p>
-    <button class="btn" id="al-save">Guardar</button>`, () => {
-    $('al-save').onclick = () => {
-      const minEuros = Math.max(0, parseFloat($('al-eur').value.replace(',', '.')) || 0), minPct = Math.max(0, parseFloat($('al-pct').value) || 0);
-      run(setDoc(doc(db, 'config', 'alertas'), { minEuros, minPct }, { merge: true })); closeSheet(); toast('Alertas guardados');
-    };
-  });
-}
 function openMenu() {
   openSheet(`<h3>Compras</h3><div class="menu">
-    <button class="mi" data-m="hab">Produtos habituais<span class="sub">${Object.keys(prods).length} guardados · links e preços</span></button>
-    <button class="mi" data-m="al">Alertas de preço<span class="sub">${eur(cfg.minEuros)} na lista ou −${cfg.minPct}% num produto</span></button>
+    <button class="mi" data-m="casa">${esc(casa && casa.name || 'A minha casa')}<span class="sub">Convidar a família · ${casa && casa.members ? casa.members.length : 1} ${casa && casa.members && casa.members.length === 1 ? 'pessoa' : 'pessoas'}</span></button>
+    <button class="mi" data-m="hab">Produtos habituais<span class="sub">${myProds().filter(p => (p.uses || 0) > 0).length} guardados</span></button>
     <button class="mi" data-m="lists">Listas<span class="sub">Criar, mudar o nome ou apagar</span></button>
     <button class="mi" data-m="out">Sair<span class="sub">${esc(user && user.email)}</span></button></div>`, root => {
     root.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
       const m = b.dataset.m;
-      if (m === 'hab') openHabituais(); else if (m === 'al') openAlertas(); else if (m === 'lists') manageLists();
+      if (m === 'hab') openHabituais(); else if (m === 'casa') openCasa(); else if (m === 'lists') manageLists();
       else { closeSheet(); signOut(auth); }
     });
   });
@@ -453,17 +383,17 @@ function manageLists() {
     <button class="btn danger" id="dl">Apagar “${esc(L.name)}”</button>` : ''}`, () => {
     $('nl-add').onclick = async () => {
       const n = cap($('nl-name').value.trim()); if (!n) return;
-      const ref = doc(collection(db, 'lists')); closeSheet();
+      const ref = doc(collection(db, 'casas', casaId, 'lists')); closeSheet();
       await run(setDoc(ref, { name: n, createdAt: Date.now() })); selectList(ref.id);
     };
     $('nl-name').onkeydown = e => { if (e.key === 'Enter') $('nl-add').click(); };
     if (!L) return;
-    $('rn-save').onclick = () => { const n = cap($('rn-name').value.trim()); if (!n) return; run(updateDoc(doc(db, 'lists', L.id), { name: n })); closeSheet(); };
+    $('rn-save').onclick = () => { const n = cap($('rn-name').value.trim()); if (!n) return; run(updateDoc(doc(db, 'casas', casaId, 'lists', L.id), { name: n })); closeSheet(); };
     $('dl').onclick = async () => {
       if (!armed) { armed = true; $('dl').textContent = `Apagar a lista e ${items.length} produtos? Tocar de novo`; return; }
       closeSheet();
-      const snap = await getDocs(collection(db, 'lists', L.id, 'items'));
-      const b = writeBatch(db); snap.docs.forEach(d => b.delete(d.ref)); b.delete(doc(db, 'lists', L.id));
+      const snap = await getDocs(collection(db, 'casas', casaId, 'lists', L.id, 'items'));
+      const b = writeBatch(db); snap.docs.forEach(d => b.delete(d.ref)); b.delete(doc(db, 'casas', casaId, 'lists', L.id));
       await run(b.commit());
       if (unsubItems) { unsubItems(); unsubItems = null; }
       const next = lists.find(l => l.id !== L.id); curId = null; items = [];
@@ -504,6 +434,8 @@ document.addEventListener('click', e => {
   else if (t.dataset.act === 'menu') openMenu();
   else if (t.dataset.act === 'clear') clearDone();
   else if (t.dataset.act === 'catalog') openCatalog('meus');
+  else if (t.dataset.act === 'inv-yes') acceptInvite();
+  else if (t.dataset.act === 'inv-no') declineInvite();
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
 
@@ -524,14 +456,42 @@ document.addEventListener('pointermove', e => { if (lpXY && Math.hypot(e.clientX
 ['pointerup', 'pointercancel'].forEach(ev => document.addEventListener(ev, () => clearTimeout(lpTimer), { passive: true }));
 document.addEventListener('click', e => { if (lpFired) { lpFired = false; e.preventDefault(); e.stopPropagation(); } }, true);
 document.addEventListener('contextmenu', e => { if (e.target.closest('[data-lp]')) e.preventDefault(); });
-/* ---------- login ---------- */
-const AUTH_ERR = { 'auth/invalid-credential': 'E-mail ou palavra-passe errados.', 'auth/wrong-password': 'Palavra-passe errada.', 'auth/user-not-found': 'Não há conta com este e-mail.', 'auth/invalid-email': 'O e-mail não é válido.', 'auth/too-many-requests': 'Demasiadas tentativas. Espera uns minutos.', 'auth/network-request-failed': 'Sem ligação à internet.' };
+/* ---------- conta e casa ---------- */
+const LEGACY_CASA = 'familia-leal';
+const CODE_ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const newCode = () => { const a = new Uint32Array(8); crypto.getRandomValues(a); return Array.from(a, n => CODE_ABC[n % CODE_ABC.length]).join(''); };
+const fmtCode = c => c ? c.slice(0, 4) + '-' + c.slice(4) : '';
+const cleanCode = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const APP_URL = 'https://lffleal.github.io/compras/';
+let signupMode = false;
+
+function show(view) {
+  ['login-view', 'casa-view', 'wait-view', 'app-view'].forEach(v => $(v).hidden = v !== view);
+  if (view === 'casa-view') { ['cs-name', 'cs-code'].forEach(i => $(i).value = ''); $('cs-err').textContent = ''; showInviteCard(); }
+}
+function stopAll() { unsub.forEach(f => f()); unsub = []; if (unsubItems) unsubItems(); unsubItems = null; lists = []; items = []; prods = {}; listsLoaded = false; itemsLoaded = false; casaId = null; casa = null; }
+
+function setSignup(on) {
+  signupMode = on;
+  $('li-title').textContent = on ? 'Criar conta' : 'Compras';
+  $('li-sub').textContent = on ? 'Depois crias a tua casa ou entras na da tua família.' : 'A lista do supermercado lá de casa.';
+  $('li-btn').textContent = on ? 'Criar conta' : 'Entrar';
+  $('li-pass').autocomplete = on ? 'new-password' : 'current-password';
+  $('li-pass-hint').hidden = !on;
+  $('li-reset').hidden = on;
+  $('li-toggle').textContent = on ? 'Já tenho conta. Entrar' : 'Ainda não tens conta? Criar conta';
+  $('li-err').textContent = '';
+}
+
+const AUTH_ERR = { 'auth/invalid-credential': 'E-mail ou palavra-passe errados.', 'auth/wrong-password': 'Palavra-passe errada.', 'auth/user-not-found': 'Não há conta com este e-mail.', 'auth/invalid-email': 'O e-mail não é válido.', 'auth/too-many-requests': 'Demasiadas tentativas. Espera uns minutos.', 'auth/network-request-failed': 'Sem ligação à internet.', 'auth/email-already-in-use': 'Já existe uma conta com este e-mail. Toca em “Já tenho conta”.', 'auth/weak-password': 'A palavra-passe tem de ter pelo menos 6 caracteres.', 'auth/operation-not-allowed': 'A criação de contas está desligada no Firebase.' };
 $('login-form').addEventListener('submit', async e => {
   e.preventDefault(); $('li-err').textContent = ''; $('li-btn').disabled = true;
-  try { await signInWithEmailAndPassword(auth, $('li-email').value.trim(), $('li-pass').value); }
-  catch (err) { $('li-err').textContent = AUTH_ERR[err.code] || 'Não foi possível entrar. Tenta outra vez.'; }
+  const em = $('li-email').value.trim(), pw = $('li-pass').value;
+  try { if (signupMode) await createUserWithEmailAndPassword(auth, em, pw); else await signInWithEmailAndPassword(auth, em, pw); }
+  catch (err) { $('li-err').textContent = AUTH_ERR[err.code] || 'Não foi possível continuar. Tenta outra vez.'; }
   $('li-btn').disabled = false;
 });
+$('li-toggle').addEventListener('click', () => setSignup(!signupMode));
 $('li-reset').addEventListener('click', async () => {
   const em = $('li-email').value.trim();
   if (!em) { $('li-err').textContent = 'Escreve primeiro o teu e-mail.'; return; }
@@ -539,19 +499,200 @@ $('li-reset').addEventListener('click', async () => {
   catch (err) { $('li-err').textContent = AUTH_ERR[err.code] || 'Não foi possível enviar o e-mail.'; }
 });
 
-function stopAll() { unsub.forEach(f => f()); unsub = []; if (unsubItems) unsubItems(); unsubItems = null; lists = []; items = []; prods = {}; listsLoaded = false; itemsLoaded = false; }
-onAuthStateChanged(auth, u => {
-  user = u; stopAll(); closeSheet();
-  $('login-view').hidden = !!u; $('app-view').hidden = !u;
-  if (!u) return;
+// Criar casa nova
+$('cs-create').addEventListener('submit', async e => {
+  e.preventDefault(); $('cs-err').textContent = '';
+  const name = cap($('cs-name').value.trim()) || 'A nossa casa';
+  const id = doc(collection(db, 'casas')).id, code = newCode(), u = user;
+  const b = writeBatch(db);
+  b.set(doc(db, 'casas', id), { name, owner: u.uid, members: [u.uid], emails: { [u.uid]: u.email }, code, createdAt: Date.now() });
+  b.set(doc(db, 'codes', code), { casaId: id });
+  b.set(doc(db, 'users', u.uid), { casaId: id, email: u.email });
+  $('cs-create-btn').disabled = true;
+  try {
+    await b.commit();
+    await setDoc(doc(collection(db, 'casas', id, 'lists')), { name: 'Supermercado', createdAt: Date.now() }).catch(() => { });
+    await startCasa(id);
+  }
+  catch (err) { console.error(err); $('cs-err').textContent = 'Não foi possível criar a casa. Tenta outra vez.'; }
+  $('cs-create-btn').disabled = false;
+});
+// Entrar com código
+$('cs-join').addEventListener('submit', async e => {
+  e.preventDefault(); $('cs-err').textContent = '';
+  const code = cleanCode($('cs-code').value);
+  if (code.length !== 8) { $('cs-err').textContent = 'O código tem 8 letras e números, por exemplo K7PQ-3XMA.'; return; }
+  $('cs-join-btn').disabled = true;
+  try {
+    const c = await getDoc(doc(db, 'codes', code));
+    if (!c.exists()) { $('cs-err').textContent = 'Este código não existe. Confirma com quem to enviou.'; $('cs-join-btn').disabled = false; return; }
+    await joinCasa(c.data().casaId, code);
+    await startCasa(c.data().casaId);
+  } catch (err) { console.error(err); $('cs-err').textContent = 'Não foi possível entrar na casa. Confirma o código.'; }
+  $('cs-join-btn').disabled = false;
+});
+$('cs-out').addEventListener('click', () => signOut(auth));
+
+async function joinCasa(id, code) {
+  const u = user;
+  await updateDoc(doc(db, 'casas', id), { members: arrayUnion(u.uid), ['emails.' + u.uid]: u.email, lastJoin: code });
+  await setDoc(doc(db, 'users', u.uid), { casaId: id, email: u.email });
+}
+
+/* convites por e-mail */
+const emailKey = e => String(e || '').trim().toLowerCase();
+let pendingInvite = null;
+async function loadInvite() {
+  pendingInvite = null;
+  try { const s = await getDoc(doc(db, 'invites', emailKey(user.email))); if (s.exists()) pendingInvite = s.data(); } catch (e) { }
+  return pendingInvite;
+}
+function showInviteCard() {
+  const box = $('cs-invite');
+  if (!pendingInvite || pendingInvite.casaId === casaId) { box.hidden = true; return; }
+  $('cs-invite-txt').textContent = `${pendingInvite.from || 'Alguém'} convidou-te para a casa “${pendingInvite.casaName || 'sem nome'}”. Se aceitares, passas a ver e editar as listas dessa casa.`;
+  box.hidden = false;
+}
+async function acceptInvite() {
+  const inv = pendingInvite; if (!inv) return;
+  const u = user;
+  try {
+    await updateDoc(doc(db, 'casas', inv.casaId), { members: arrayUnion(u.uid), ['emails.' + u.uid]: u.email, lastJoin: 'convite' });
+    await setDoc(doc(db, 'users', u.uid), { casaId: inv.casaId, email: u.email });
+    await deleteDoc(doc(db, 'invites', emailKey(u.email))).catch(() => { });
+    pendingInvite = null; $('cs-invite').hidden = true;
+    await startCasa(inv.casaId); toast('Bem-vindo à casa ' + (inv.casaName || ''));
+  } catch (e) { console.error(e); $('cs-err').textContent = 'Não foi possível aceitar. Pede um convite novo.'; }
+}
+async function declineInvite() {
+  await deleteDoc(doc(db, 'invites', emailKey(user.email))).catch(() => { });
+  pendingInvite = null; $('cs-invite').hidden = true; note('');
+}
+$('cs-accept').addEventListener('click', acceptInvite);
+$('cs-decline').addEventListener('click', declineInvite);
+
+// Contas da primeira versão (Luís e Sílvia): passam para a casa da família com tudo o que já tinham
+async function tryLegacy() {
+  let old;
+  try { old = await getDocs(collection(db, 'lists')); } catch (e) { return false; } // conta nova: não tem dados antigos
+  const u = user, ref = doc(db, 'casas', LEGACY_CASA);
+  $('wait-msg').textContent = 'A passar as tuas listas para a tua casa…';
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    await updateDoc(ref, { members: arrayUnion(u.uid), ['emails.' + u.uid]: u.email });
+  } else {
+    const code = newCode(), b = writeBatch(db);
+    b.set(ref, { name: 'Casa Leal', owner: u.uid, members: [u.uid], emails: { [u.uid]: u.email }, code, createdAt: Date.now(), migrated: false });
+    b.set(doc(db, 'codes', code), { casaId: LEGACY_CASA });
+    await b.commit();
+  }
+  const fresh = (await getDoc(ref)).data();
+  if (!fresh.migrated) {
+    const writes = [];
+    for (const l of old.docs) {
+      writes.push([doc(db, 'casas', LEGACY_CASA, 'lists', l.id), l.data()]);
+      const its = await getDocs(collection(db, 'lists', l.id, 'items'));
+      its.docs.forEach(d => writes.push([doc(db, 'casas', LEGACY_CASA, 'lists', l.id, 'items', d.id), d.data()]));
+    }
+    const ps = await getDocs(collection(db, 'produtos'));
+    ps.docs.forEach(d => writes.push([doc(db, 'casas', LEGACY_CASA, 'produtos', d.id), d.data()]));
+    for (let i = 0; i < writes.length; i += 400) {
+      const b = writeBatch(db); writes.slice(i, i + 400).forEach(([r, d]) => b.set(r, d, { merge: true })); await b.commit();
+    }
+    await updateDoc(ref, { migrated: true });
+  }
+  await setDoc(doc(db, 'users', u.uid), { casaId: LEGACY_CASA, email: u.email });
+  return true;
+}
+
+function startCasa(id) {
+  stopAll(); casaId = id;
+  return new Promise(resolve => {
+    let first = true;
+    unsub.push(onSnapshot(doc(db, 'casas', id), s => {
+      casa = s.exists() ? s.data() : null;
+      if (!casa || !(casa.members || []).includes(user.uid)) { stopAll(); show('casa-view'); resolve(); return; }
+      if (first) { first = false; show('app-view'); startData(); resolve(); }
+    }, () => { stopAll(); show('casa-view'); resolve(); }));
+  });
+}
+function startData() {
   note('');
-  unsub.push(onSnapshot(query(collection(db, 'lists'), orderBy('createdAt')), s => {
+  if (pendingInvite && pendingInvite.casaId !== casaId) {
+    const el = $('note');
+    el.innerHTML = `Tens um convite para a casa “${esc(pendingInvite.casaName || '')}”. <button class="link" data-act="inv-yes">Mudar para essa casa</button> · <button class="link" data-act="inv-no">Recusar</button>`;
+    el.hidden = false;
+  }
+  unsub.push(onSnapshot(query(collection(db, 'casas', casaId, 'lists'), orderBy('createdAt')), s => {
     lists = s.docs.map(d => ({ id: d.id, ...d.data() }));
     listsLoaded = true;
     if (lists.length && !lists.find(l => l.id === curId)) selectList(lists[0].id);
     else if (curId && !unsubItems && lists.find(l => l.id === curId)) selectList(curId);
     render();
   }, e => { listsLoaded = true; onErr(e); render(); }));
-  unsub.push(onSnapshot(collection(db, 'produtos'), s => { prods = {}; s.docs.forEach(d => { const x = d.data(); prods[d.id] = { id: d.id, ...x, cat: normCat(x.cat, x.name) }; }); render(); }, onErr));
-  unsub.push(onSnapshot(doc(db, 'config', 'alertas'), s => { if (s.exists()) cfg = { minEuros: 10, minPct: 30, ...s.data() }; render(); }, () => { }));
+  unsub.push(onSnapshot(collection(db, 'casas', casaId, 'produtos'), s => { prods = {}; s.docs.forEach(d => { const x = d.data(); prods[d.id] = { id: d.id, ...x, cat: normCat(x.cat, x.name) }; }); render(); }, onErr));
+}
+
+function openCasa() {
+  if (!casa) return;
+  let armed = false;
+  const others = Object.entries(casa.emails || {}).filter(([uid]) => (casa.members || []).includes(uid));
+  const msg = `Junta-te à nossa lista de compras. Instala a app ${APP_URL} , cria conta e entra com o código ${fmtCode(casa.code)}`;
+  openSheet(`<h3>A minha casa</h3>
+    <div class="field"><label for="ca-name">Nome da casa</label><div class="row"><input id="ca-name" value="${esc(casa.name)}" style="flex:3"><button class="btn ghost" id="ca-rename">Mudar</button></div></div>
+    <form class="field" id="ca-inv"><label for="ca-inv-email">Convidar por e-mail</label><div class="row"><input id="ca-inv-email" type="email" inputmode="email" placeholder="e-mail da conta da outra pessoa" style="flex:3"><button class="btn" id="ca-inv-btn">Convidar</button></div>
+      <p class="hint">Quando essa pessoa entrar na app com este e-mail, aparece-lhe o convite para aceitar. Se ainda não tiver conta, cria-a com este mesmo e-mail.</p></form>
+    <div class="field"><span class="l">Ou partilha o código de convite</span>
+      <div class="codebox"><span id="ca-code">${esc(fmtCode(casa.code))}</span><button class="btn small" id="ca-copy">Copiar convite</button></div>
+      <p class="hint">Quem tiver este código entra na tua casa e vê as vossas listas. Dá-o só à família. A outra pessoa abre ${APP_URL}, cria conta e escreve o código.</p>
+      <button class="link" id="ca-newcode">Gerar um código novo (o antigo deixa de funcionar)</button></div>
+    <div class="field"><span class="l">Pessoas nesta casa</span>${others.map(([uid, em]) => `<div class="member">${esc(em)}${uid === user.uid ? ' <span class="hint">(tu)</span>' : ''}</div>`).join('')}</div>
+    <button class="btn danger" id="ca-leave">Sair desta casa</button>`, () => {
+    $('ca-inv').onsubmit = async e => {
+      e.preventDefault();
+      const em = emailKey($('ca-inv-email').value);
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { toast('Escreve um e-mail válido'); return; }
+      if (Object.values(casa.emails || {}).map(emailKey).includes(em)) { toast('Essa pessoa já está nesta casa'); return; }
+      try { await setDoc(doc(db, 'invites', em), { casaId, casaName: casa.name || '', from: user.email, at: Date.now() }); $('ca-inv-email').value = ''; toast('Convite enviado para ' + em); }
+      catch (err) { console.error(err); toast('Não foi possível convidar. Tenta outra vez.'); }
+    };
+    $('ca-rename').onclick = () => { const n = cap($('ca-name').value.trim()); if (!n) return; run(updateDoc(doc(db, 'casas', casaId), { name: n })); toast('Nome mudado'); };
+    $('ca-copy').onclick = async () => {
+      try { if (navigator.share) { await navigator.share({ text: msg }); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
+      try { await navigator.clipboard.writeText(msg); toast('Convite copiado. Cola-o numa mensagem.'); }
+      catch (e) { const r = document.createRange(); r.selectNodeContents($('ca-code')); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); toast('Copia o código selecionado'); }
+    };
+    $('ca-newcode').onclick = async () => {
+      const code = newCode(), b = writeBatch(db);
+      if (casa.code) b.delete(doc(db, 'codes', casa.code));
+      b.set(doc(db, 'codes', code), { casaId });
+      b.update(doc(db, 'casas', casaId), { code });
+      await run(b.commit()); casa.code = code; openCasa(); toast('Código novo criado');
+    };
+    $('ca-leave').onclick = async () => {
+      if (!armed) { armed = true; $('ca-leave').textContent = 'Deixas de ver estas listas. Tocar de novo para sair'; return; }
+      closeSheet();
+      const id = casaId, uid = user.uid;
+      stopAll();
+      try {
+        await updateDoc(doc(db, 'casas', id), { members: arrayRemove(uid), ['emails.' + uid]: deleteField() });
+        await setDoc(doc(db, 'users', uid), { casaId: null, email: user.email });
+      } catch (e) { console.error(e); }
+      show('casa-view');
+    };
+  });
+}
+
+onAuthStateChanged(auth, async u => {
+  user = u; stopAll(); closeSheet();
+  if (!u) { show('login-view'); return; }
+  show('wait-view'); $('wait-msg').textContent = 'A abrir…';
+  await loadInvite();
+  try {
+    const me = await getDoc(doc(db, 'users', u.uid));
+    const id = me.exists() && me.data().casaId;
+    if (id) { await startCasa(id); return; }
+    if (await tryLegacy()) { await startCasa(LEGACY_CASA); return; }
+  } catch (e) { console.error(e); }
+  show('casa-view');
 });

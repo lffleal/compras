@@ -41,7 +41,13 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:14px 10px;border-bottom:1px solid var(--line)}
 .top{display:flex;align-items:center;justify-content:space-between;gap:12px}
 h1{font-family:var(--f-display);font-weight:800;font-size:1.9rem;letter-spacing:-.02em;margin:0;line-height:1.05;min-width:0;overflow-wrap:anywhere}
-.top-r{display:flex;align-items:center;gap:4px}
+.top-r{display:flex;align-items:center;gap:6px}
+.bell{position:relative;border:0;background:color-mix(in srgb,var(--ink) 12%,transparent);border-radius:999px;width:32px;height:32px;font-size:16px;line-height:32px;padding:0;cursor:pointer;animation:ring 1.2s ease-in-out 3}
+.bell::after{content:'';position:absolute;top:3px;right:3px;width:8px;height:8px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 2px var(--bg)}
+@keyframes ring{0%,100%{transform:rotate(0)}20%{transform:rotate(14deg)}40%{transform:rotate(-12deg)}60%{transform:rotate(8deg)}80%{transform:rotate(-4deg)}}
+@media (prefers-reduced-motion:reduce){.bell{animation:none}}
+.ver{font-size:.7rem;color:var(--muted);opacity:.8;font-variant-numeric:tabular-nums}
+.toast button{margin-left:10px;border:0;border-radius:8px;padding:4px 10px;font:inherit;font-weight:700;cursor:pointer;background:var(--accent);color:var(--accent-ink)}
 .count{color:var(--muted);font-size:.9rem;white-space:nowrap;font-variant-numeric:tabular-nums}
 .iconbtn{padding:8px;border-radius:10px;display:flex;color:var(--muted)}
 .tabs{display:flex;gap:6px;overflow-x:auto;margin-top:10px;padding-bottom:2px;scrollbar-width:none}
@@ -151,6 +157,15 @@ main{padding-block:12px 120px}
 .pick button[aria-pressed="true"]{border-color:var(--cc);background:var(--accent-soft);font-weight:700}
 .pick button[aria-pressed="true"]::before{content:"✓";color:var(--cc);font-weight:800}
 #cat-filter{font:inherit;padding:11px 13px;border-radius:12px;border:1.5px solid var(--line);background:var(--bg);color:var(--ink);width:100%}
+.or{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:.85rem}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+.codebox{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border:1.5px dashed var(--accent);border-radius:12px;background:var(--accent-soft)}
+.codebox span{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:1.4rem;font-weight:700;letter-spacing:.12em}
+.member{padding:10px 2px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.member:last-child{border-bottom:0}
+.invite{display:flex;flex-direction:column;gap:8px;padding:14px;border:1.5px solid var(--accent);border-radius:var(--r);background:var(--accent-soft)}
+.invite p{margin:0;color:var(--ink)}
+.note .link{padding:0;font-size:inherit}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;font-size:.9rem;z-index:30;max-width:calc(100% - 32px);text-align:center}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .2s ease-out}@keyframes up{from{transform:translateY(30px);opacity:.6}}}
 </style>
@@ -160,14 +175,38 @@ main{padding-block:12px 120px}
 <section id="login-view" class="wrap" hidden>
   <div class="login">
     <img class="logo" src="icon-192.png" alt="">
-    <div><h1>Compras</h1><p>A lista do supermercado lá de casa.</p></div>
+    <div><h1 id="li-title">Compras</h1><p id="li-sub">A lista do supermercado lá de casa.</p></div>
     <form id="login-form">
       <div class="field"><label for="li-email">E-mail</label><input id="li-email" type="email" autocomplete="username" required></div>
-      <div class="field"><label for="li-pass">Palavra-passe</label><input id="li-pass" type="password" autocomplete="current-password" required></div>
+      <div class="field"><label for="li-pass">Palavra-passe</label><input id="li-pass" type="password" autocomplete="current-password" minlength="6" required><span class="hint" id="li-pass-hint" hidden>Pelo menos 6 caracteres.</span></div>
       <div class="err" id="li-err"></div>
       <button class="btn" id="li-btn">Entrar</button>
+      <button type="button" class="link" id="li-toggle">Ainda não tens conta? Criar conta</button>
       <button type="button" class="link" id="li-reset">Esqueci-me da palavra-passe</button>
     </form>
+  </div>
+</section>
+
+<section id="wait-view" class="wrap" hidden>
+  <div class="login"><img class="logo" src="icon-192.png" alt=""><p id="wait-msg">A abrir…</p></div>
+</section>
+
+<section id="casa-view" class="wrap" hidden>
+  <div class="login">
+    <img class="logo" src="icon-192.png" alt="">
+    <div><h1>A tua casa</h1><p>As listas são partilhadas por casa. Cria a tua, ou entra na da tua família com o código que te enviaram.</p></div>
+    <div class="invite" id="cs-invite" hidden><b>Tens um convite</b><p id="cs-invite-txt"></p><div class="row"><button type="button" class="btn" id="cs-accept">Aceitar</button><button type="button" class="btn ghost" id="cs-decline">Recusar</button></div></div>
+    <form id="cs-join">
+      <div class="field"><label for="cs-code">Tenho um código de convite</label><input id="cs-code" placeholder="ex.: K7PQ-3XMA" autocapitalize="characters" autocomplete="off" maxlength="12"></div>
+      <button class="btn" id="cs-join-btn">Entrar na casa</button>
+    </form>
+    <div class="or"><span>ou</span></div>
+    <form id="cs-create">
+      <div class="field"><label for="cs-name">Criar uma casa nova</label><input id="cs-name" placeholder="ex.: Casa Silva"></div>
+      <button class="btn ghost" id="cs-create-btn">Criar casa</button>
+    </form>
+    <div class="err" id="cs-err"></div>
+    <button type="button" class="link" id="cs-out">Sair da conta</button>
   </div>
 </section>
 
@@ -177,6 +216,7 @@ main{padding-block:12px 120px}
       <div class="top">
         <h1 id="title">Compras</h1>
         <div class="top-r"><span class="count" id="count"></span>
+          <button type="button" class="bell" id="upd-bell" hidden aria-label="Há uma versão nova: toca para atualizar">🔔</button><span class="ver" id="app-ver" title="Versão da app">v12</span>
           <button class="iconbtn" data-act="menu" aria-label="Menu"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></button>
         </div>
       </div>
@@ -200,7 +240,29 @@ main{padding-block:12px 120px}
 
 <script type="module" src="app.js"></script>
 <script>
-if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+// Atualizações (como na app das Trocas): procura versão nova ao abrir, ao voltar à app e quando volta a internet.
+// Se não estás a meio de nada, recarrega sozinha; se estás, mostra o aviso e a campainha até atualizares.
+if ('serviceWorker' in navigator) {
+  const check = () => navigator.serviceWorker.getRegistration().then(r => r && r.update()).catch(() => {});
+  addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').then(r => r.update()).catch(() => {});
+    addEventListener('online', check);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+  });
+  let reloaded = false; const hadController = !!navigator.serviceWorker.controller; // na 1.ª instalação não recarrega
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloaded || !hadController) return; reloaded = true;
+    const busy = () => !!document.querySelector('#sheet-root .sheet') || ['add-input', 'li-email', 'li-pass', 'cs-code', 'cs-name'].some(id => { const el = document.getElementById(id); return el && el.offsetParent && el.value.trim(); });
+    if (!busy()) { location.reload(); return; }
+    const bell = document.getElementById('upd-bell');
+    bell.hidden = false; bell.onclick = () => location.reload();
+    const t = document.createElement('div'); t.className = 'toast'; t.textContent = '🔔 Há uma versão nova da app! Toca na campainha para atualizar.';
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Atualizar'; b.onclick = () => location.reload(); t.appendChild(b);
+    document.body.appendChild(t);
+    // com a lista aberta a campainha fica no canto; nos ecrãs de entrada o aviso fica até tocares
+    if (!document.getElementById('app-view').hidden) setTimeout(() => t.remove(), 12000);
+  });
+}
 </script>
 </body>
 </html>
