@@ -1,7 +1,7 @@
 // Compras: abre sem internet e atualiza-se sozinha.
 // As listas ficam no Firebase; aqui só se guardam os ficheiros da própria app.
 // Ao publicar uma versão nova, mudar VERSION (e o número em index.html, id="app-ver").
-const VERSION = 'v13-2026-11-26';
+const VERSION = 'v14-2026-11-26';
 const CACHE = 'compras-' + VERSION;
 const CORE = ['./', './index.html', './app.js', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
 
