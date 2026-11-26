@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, query, orderBy, onSnapshot, setDoc, updateDoc, deleteDoc, getDoc, getDocs, increment, writeBatch, arrayUnion, arrayRemove, deleteField } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, query, orderBy, limit, onSnapshot, setDoc, updateDoc, deleteDoc, getDoc, getDocs, increment, writeBatch, arrayUnion, arrayRemove, deleteField } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDz1Fav0Hxf4QWDitFfg7jK5Kq_baUH0fE",
@@ -194,17 +194,20 @@ function addItem(raw, forcedCat) {
   const finalName = p ? p.name : name;
   const cat = forcedCat || guessCat(name);
   if (ex && ex.done) run(updateDoc(doc(itemsCol(), ex.id), { done: false, qty: qty || ex.qty || '' }));
-  else run(setDoc(doc(itemsCol()), { name: finalName, key, prodId: key, qty, cat, done: false, createdAt: Date.now() }));
+  else run(setDoc(doc(itemsCol()), { name: finalName, key, prodId: key, qty, cat, done: false, createdAt: Date.now(), by: user.uid }));
   touchProduct(finalName, cat);
+  logAct('add', finalName);
 }
 function toggle(id) {
   const it = items.find(i => i.id === id); if (!it) return;
   run(updateDoc(doc(itemsCol(), id), { done: !it.done, doneAt: Date.now() }));
+  if (!it.done) logAct('done', it.name);
 }
 async function clearDone() {
   const done = items.filter(i => i.done);
   const b = writeBatch(db); done.forEach(i => b.delete(doc(itemsCol(), i.id)));
   await run(b.commit());
+  if (done.length) logAct('clear', done.length + (done.length === 1 ? ' produto' : ' produtos'));
   toast(`${done.length} ${done.length === 1 ? 'produto removido' : 'produtos removidos'}`);
 }
 function selectList(id) {
@@ -305,7 +308,7 @@ function editItem(id) {
     };
     $('ed-del').onclick = () => {
       if (!armed) { armed = true; $('ed-del').textContent = 'Tocar de novo'; return; }
-      run(deleteDoc(doc(itemsCol(), id))); closeSheet();
+      run(deleteDoc(doc(itemsCol(), id))); logAct('remove', it.name); closeSheet();
     };
   });
 }
@@ -366,7 +369,7 @@ function habBody() {
 }
 function toggleProduct(name, cat) {
   const key = keyOf(name), it = items.find(i => i.key === key && !i.done);
-  if (it) { run(deleteDoc(doc(itemsCol(), it.id))); return false; }
+  if (it) { run(deleteDoc(doc(itemsCol(), it.id))); logAct('remove', it.name); return false; }
   addItem(name, cat); return true;
 }
 function openHabituais() {
@@ -425,10 +428,63 @@ function openSeccoes() {
       const list = work.map(c => ({ id: c.id, n: cap(c.n.trim()) || 'Sem nome', c: c.c }));
       setCats(list); renorm(); render();
       run(setDoc(doc(db, 'casas', casaId, 'config', 'seccoes'), { list, at: Date.now() }));
-      closeSheet(); toast('Secções guardadas');
+      closeSheet(); toast('Secções guardadas'); logAct('sec', '');
     };
   });
 }
+
+/* ---------- novidades e campainha ---------- */
+// Cada alteração fica registada na casa (atividade). A campainha fica amarela quando há versão nova
+// ou quando outra pessoa da casa mexeu nas listas desde a última vez que abriste as novidades.
+let activity = [], updReady = !!window.__updReady;
+const firstName = em => { const b = String(em || '').split('@')[0].split(/[._\-+\d]/)[0]; return b ? cap(b) : 'Alguém'; };
+const seenKey = () => 'compras.seen.' + casaId + '.' + (user ? user.uid : '');
+function getSeen() { try { const v = +localStorage.getItem(seenKey()); if (v) return v; localStorage.setItem(seenKey(), String(Date.now())); } catch (e) { } return Date.now(); }
+function setSeen() { try { localStorage.setItem(seenKey(), String(Date.now())); } catch (e) { } }
+function logAct(type, what, listName) {
+  if (!casaId || !user) return;
+  run(setDoc(doc(collection(db, 'casas', casaId, 'atividade')), { uid: user.uid, who: user.email, type, what: String(what || ''), list: listName || (curList() ? curList().name : ''), at: Date.now() }));
+}
+const unread = () => { const seen = getSeen(); return activity.filter(a => a.uid !== (user && user.uid) && a.at > seen); };
+function paintBell() {
+  const b = $('upd-bell'); if (!b) return;
+  const n = unread().length, on = updReady || n > 0;
+  b.classList.toggle('on', on);
+  b.setAttribute('aria-label', updReady ? 'Há uma versão nova da app' : n ? `${n} novidades na casa` : 'Sem novidades');
+  b.title = b.getAttribute('aria-label');
+}
+const VERB = { add: 'adicionou', done: 'comprou', remove: 'tirou da lista', clear: 'limpou do carrinho', list: 'criou a lista', dellist: 'apagou a lista', sec: 'mudou as secções' };
+const agoTxt = t => { const m = Math.round((Date.now() - t) / 60000); if (m < 1) return 'agora'; if (m < 60) return `há ${m} min`; const h = Math.round(m / 60); if (h < 24) return `há ${h} h`; const d = Math.round(h / 24); return d === 1 ? 'ontem' : `há ${d} dias`; };
+function groupActivity(list) {
+  const out = [];
+  for (const a of list) {
+    const g = out[out.length - 1];
+    if (g && g.uid === a.uid && g.type === a.type && g.list === a.list && ['add', 'done', 'remove'].includes(a.type) && g.last - a.at < 15 * 60000) { g.whats.push(a.what); g.last = a.at; }
+    else out.push({ uid: a.uid, who: a.who, type: a.type, list: a.list, whats: [a.what], at: a.at, last: a.at });
+  }
+  return out;
+}
+function openNovidades() {
+  const seen = getSeen(), me = user && user.uid;
+  const groups = groupActivity(activity.slice(0, 40));
+  const line = g => {
+    const who = g.uid === me ? 'Tu' : esc(firstName(g.who));
+    const w = g.whats.filter(Boolean), list = w.slice(0, 3).map(esc).join(', ') + (w.length > 3 ? ` e mais ${w.length - 3}` : '');
+    const where = ['list', 'dellist', 'sec'].includes(g.type) ? '' : (g.list ? ` · ${esc(g.list)}` : '');
+    const obj = g.type === 'sec' ? '' : ` <b>${list}</b>`;
+    return `<div class="act${g.uid !== me && g.at > seen ? ' new' : ''}"><span>${who} ${VERB[g.type] || 'mudou'}${obj}${where}</span><span class="hint">${agoTxt(g.at)}</span></div>`;
+  };
+  openSheet(`<h3>Novidades</h3>
+    ${updReady ? `<div class="invite"><b>🔔 Há uma versão nova da app</b><p>Atualiza para teres as últimas melhorias. As tuas listas não se perdem.</p><button type="button" class="btn" id="nv-upd">Atualizar agora</button></div>` : ''}
+    <div class="acts">${groups.length ? groups.map(line).join('') : '<p class="hint">Ainda não há novidades. Quando alguém da casa mexer nas listas, aparece aqui e a campainha fica amarela.</p>'}</div>
+    <button type="button" class="btn ghost" id="nv-ok">Fechar</button>`, () => {
+    if ($('nv-upd')) $('nv-upd').onclick = () => { if (window.__updReload) window.__updReload(); else location.reload(); };
+    $('nv-ok').onclick = closeSheet;
+  });
+  setSeen(); paintBell();
+}
+$('upd-bell').addEventListener('click', openNovidades);
+addEventListener('compras-update', () => { updReady = true; paintBell(); });
 
 function openMenu() {
   openSheet(`<h3>Compras</h3><div class="menu">
@@ -453,7 +509,7 @@ function manageLists() {
     $('nl-add').onclick = async () => {
       const n = cap($('nl-name').value.trim()); if (!n) return;
       const ref = doc(collection(db, 'casas', casaId, 'lists')); closeSheet();
-      await run(setDoc(ref, { name: n, createdAt: Date.now() })); selectList(ref.id);
+      await run(setDoc(ref, { name: n, createdAt: Date.now() })); selectList(ref.id); logAct('list', n, n);
     };
     $('nl-name').onkeydown = e => { if (e.key === 'Enter') $('nl-add').click(); };
     if (!L) return;
@@ -464,6 +520,7 @@ function manageLists() {
       const snap = await getDocs(collection(db, 'casas', casaId, 'lists', L.id, 'items'));
       const b = writeBatch(db); snap.docs.forEach(d => b.delete(d.ref)); b.delete(doc(db, 'casas', casaId, 'lists', L.id));
       await run(b.commit());
+      logAct('dellist', L.name, L.name);
       if (unsubItems) { unsubItems(); unsubItems = null; }
       const next = lists.find(l => l.id !== L.id); curId = null; items = [];
       if (next) selectList(next.id); else render();
@@ -699,6 +756,13 @@ function startData() {
     else if (curId && !unsubItems && lists.find(l => l.id === curId)) selectList(curId);
     render();
   }, e => { listsLoaded = true; onErr(e); render(); }));
+  activity = []; getSeen(); paintBell();
+  unsub.push(onSnapshot(query(collection(db, 'casas', casaId, 'atividade'), orderBy('at', 'desc'), limit(60)), s => {
+    activity = s.docs.map(d => ({ id: d.id, ...d.data() }));
+    // guarda só as últimas 50 alterações
+    if (activity.length > 50) activity.slice(50).forEach(a => run(deleteDoc(doc(db, 'casas', casaId, 'atividade', a.id))));
+    paintBell();
+  }, () => { }));
   unsub.push(onSnapshot(doc(db, 'casas', casaId, 'config', 'seccoes'), s => { setCats(s.exists() ? s.data().list : null); renorm(); render(); }, () => { }));
   unsub.push(onSnapshot(collection(db, 'casas', casaId, 'produtos'), s => { prods = {}; s.docs.forEach(d => { const x = d.data(); prods[d.id] = { id: d.id, ...x, rawCat: x.cat }; }); renorm(); render(); }, onErr));
 }

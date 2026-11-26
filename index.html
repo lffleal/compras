@@ -42,8 +42,15 @@ header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var
 .top{display:flex;align-items:center;justify-content:space-between;gap:12px}
 h1{font-family:var(--f-display);font-weight:800;font-size:1.9rem;letter-spacing:-.02em;margin:0;line-height:1.05;min-width:0;overflow-wrap:anywhere}
 .top-r{display:flex;align-items:center;gap:6px}
-.bell{position:relative;border:0;background:color-mix(in srgb,var(--ink) 12%,transparent);border-radius:999px;width:32px;height:32px;font-size:16px;line-height:32px;padding:0;cursor:pointer;animation:ring 1.2s ease-in-out 3}
-.bell::after{content:'';position:absolute;top:3px;right:3px;width:8px;height:8px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 2px var(--bg)}
+.bell{position:relative;border:0;background:color-mix(in srgb,var(--ink) 10%,transparent);border-radius:999px;width:32px;height:32px;font-size:16px;line-height:32px;padding:0;cursor:pointer;filter:grayscale(1);opacity:.55}
+.bell.on{filter:none;opacity:1;animation:ring 1.2s ease-in-out 3}
+.bell.on::after{content:'';position:absolute;top:3px;right:3px;width:8px;height:8px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 2px var(--bg)}
+.acts{display:flex;flex-direction:column}
+.act{display:flex;justify-content:space-between;gap:10px;padding:11px 2px;border-bottom:1px solid var(--line);font-size:.95rem}
+.act:last-child{border-bottom:0}
+.act>span:first-child{min-width:0;overflow-wrap:anywhere}
+.act .hint{white-space:nowrap;font-size:.8rem}
+.act.new{background:var(--accent-soft);border-radius:10px;padding-inline:8px}
 @keyframes ring{0%,100%{transform:rotate(0)}20%{transform:rotate(14deg)}40%{transform:rotate(-12deg)}60%{transform:rotate(8deg)}80%{transform:rotate(-4deg)}}
 @media (prefers-reduced-motion:reduce){.bell{animation:none}}
 .ver{font-size:.7rem;color:var(--muted);opacity:.8;font-variant-numeric:tabular-nums}
@@ -228,7 +235,7 @@ main{padding-block:12px 120px}
       <div class="top">
         <h1 id="title">Compras</h1>
         <div class="top-r"><span class="count" id="count"></span>
-          <button type="button" class="bell" id="upd-bell" hidden aria-label="Há uma versão nova: toca para atualizar">🔔</button><span class="ver" id="app-ver" title="Versão da app" data-news="Agora aparece este aviso sempre que a app é atualizada.">v14</span>
+          <button type="button" class="bell" id="upd-bell" aria-label="Novidades">🔔</button><span class="ver" id="app-ver" title="Versão da app" data-news="A campainha fica amarela quando há versão nova ou quando alguém da casa mexe nas listas. Toca nela para ver as novidades.">v15</span>
           <button class="iconbtn" data-act="menu" aria-label="Menu"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></button>
         </div>
       </div>
@@ -262,7 +269,7 @@ if ('serviceWorker' in navigator) {
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
   });
   // recarrega e deixa nota para, ao abrir, mostrar "App atualizada"
-  const updReload = () => { try { sessionStorage.setItem('compras.updated', '1'); } catch (e) { } location.reload(); };
+  const updReload = window.__updReload = () => { try { sessionStorage.setItem('compras.updated', '1'); } catch (e) { } location.reload(); };
   addEventListener('load', () => {
     let flag = null; try { flag = sessionStorage.getItem('compras.updated'); sessionStorage.removeItem('compras.updated'); } catch (e) { }
     if (!flag) return;
@@ -277,8 +284,7 @@ if ('serviceWorker' in navigator) {
     if (reloaded || !hadController) return; reloaded = true;
     const busy = () => !!document.querySelector('#sheet-root .sheet') || ['add-input', 'li-email', 'li-pass', 'cs-code', 'cs-name'].some(id => { const el = document.getElementById(id); return el && el.offsetParent && el.value.trim(); });
     if (!busy()) { updReload(); return; }
-    const bell = document.getElementById('upd-bell');
-    bell.hidden = false; bell.onclick = updReload;
+    window.__updReady = true; dispatchEvent(new Event('compras-update')); // a campainha fica amarela
     const t = document.createElement('div'); t.className = 'toast'; t.textContent = '🔔 Há uma versão nova da app! Toca na campainha para atualizar.';
     const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Atualizar'; b.onclick = updReload; t.appendChild(b);
     document.body.appendChild(t);
