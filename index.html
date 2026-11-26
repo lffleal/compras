@@ -17,7 +17,7 @@
   --accent:#2E6B3C; --accent-ink:#FFFFFF; --accent-soft:#DCEBDD; --danger:#B3362B;
   --deal:#B5430F; --deal-soft:#FBE6D9;
   --c-fruta:#4E9A3A; --c-talho:#C2453A; --c-peixe:#2F7FB5; --c-lact:#6C8FD6; --c-pad:#C98A2B;
-  --c-merc:#9A6A3C; --c-cong:#3AA6B9; --c-bebidas:#8A5BC7; --c-limpeza:#2D9A87; --c-higiene:#C95A92; --c-outros:#7D877F;
+  --c-merc:#9A6A3C; --c-cong:#3AA6B9; --c-bebidas:#8A5BC7; --c-limpeza:#2D9A87; --c-higiene:#C95A92; --c-carne:#A3324E; --c-outros:#7D877F;
   --f-display:"Bricolage Grotesque",ui-rounded,"Segoe UI",system-ui,sans-serif;
   --f-body:"Figtree",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   --r:14px; color-scheme:light;
@@ -27,7 +27,7 @@
   --accent:#6FBF7E; --accent-ink:#0E1A10; --accent-soft:#223527; --danger:#EC7468;
   --deal:#F2955E; --deal-soft:#3A2518;
   --c-fruta:#7CC566; --c-talho:#E7776C; --c-peixe:#62AEE0; --c-lact:#93AFEF; --c-pad:#E3AA52;
-  --c-merc:#C9946A; --c-cong:#5CC8D9; --c-bebidas:#B38BEA; --c-limpeza:#52C3AE; --c-higiene:#E68ABA; --c-outros:#A3ADA5;
+  --c-merc:#C9946A; --c-cong:#5CC8D9; --c-bebidas:#B38BEA; --c-limpeza:#52C3AE; --c-higiene:#E68ABA; --c-carne:#E67A93; --c-outros:#A3ADA5;
   color-scheme:dark}}
 *{box-sizing:border-box}
 html,body{margin:0;min-height:100%}
@@ -166,6 +166,15 @@ main{padding-block:12px 120px}
 .invite{display:flex;flex-direction:column;gap:8px;padding:14px;border:1.5px solid var(--accent);border-radius:var(--r);background:var(--accent-soft)}
 .invite p{margin:0;color:var(--ink)}
 .note .link{padding:0;font-size:inherit}
+.secs{display:flex;flex-direction:column;gap:8px}
+.secrow{display:flex;align-items:center;gap:6px}
+.swatch{width:30px;height:30px;border-radius:50%;flex:none;background:var(--cc);border:3px solid var(--surface);box-shadow:0 0 0 1.5px var(--line);padding:0}
+.secname{flex:1;min-width:0;display:flex;flex-direction:column}
+.secname input{font:inherit;padding:8px 10px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg);color:var(--ink);min-width:0;width:100%}
+.secname .hint{font-size:.75rem;padding-left:4px}
+.ib{flex:none;min-width:34px;height:34px;border:1px solid var(--line);border-radius:10px;font-weight:700;padding:0 6px}
+.ib:disabled{opacity:.3}
+.ib.del{color:var(--danger)}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;font-size:.9rem;z-index:30;max-width:calc(100% - 32px);text-align:center}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .2s ease-out}@keyframes up{from{transform:translateY(30px);opacity:.6}}}
 </style>
@@ -216,7 +225,7 @@ main{padding-block:12px 120px}
       <div class="top">
         <h1 id="title">Compras</h1>
         <div class="top-r"><span class="count" id="count"></span>
-          <button type="button" class="bell" id="upd-bell" hidden aria-label="Há uma versão nova: toca para atualizar">🔔</button><span class="ver" id="app-ver" title="Versão da app">v12</span>
+          <button type="button" class="bell" id="upd-bell" hidden aria-label="Há uma versão nova: toca para atualizar">🔔</button><span class="ver" id="app-ver" title="Versão da app">v13</span>
           <button class="iconbtn" data-act="menu" aria-label="Menu"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></button>
         </div>
       </div>

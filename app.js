@@ -18,23 +18,36 @@ try { db = initializeFirestore(fbApp, { localCache: persistentLocalCache({ tabMa
 catch (e) { db = initializeFirestore(fbApp, {}); }
 
 /* ---------- catálogo ---------- */
-const CATS = [
-  { id: 'fruta', n: 'Fruta' }, { id: 'charc', n: 'Charcutaria' }, { id: 'bebidas', n: 'Águas, sumos e refrigerantes' },
-  { id: 'merc', n: 'Mercearias' }, { id: 'higiene', n: 'Higiene pessoal' }, { id: 'limpeza', n: 'Limpeza' }, { id: 'cereais', n: 'Cereais, pão de forma e ovos' }, { id: 'cafe', n: 'Café e bolachas' }];
-const CVAR = { fruta: '--c-fruta', charc: '--c-talho', bebidas: '--c-peixe', merc: '--c-merc', cereais: '--c-lact', cafe: '--c-pad', higiene: '--c-higiene', limpeza: '--c-limpeza' };
-const CATN = Object.fromEntries(CATS.map(c => [c.id, c.n]));
+// Secções de origem (cada casa pode mudar nomes, ordem e cores, criar e apagar; fica em config/seccoes)
+const DEFAULT_CATS = [
+  { id: 'fruta', n: 'Fruta', c: 'fruta' }, { id: 'charc', n: 'Charcutaria', c: 'talho' }, { id: 'bebidas', n: 'Águas, sumos e refrigerantes', c: 'peixe' },
+  { id: 'merc', n: 'Mercearias', c: 'merc' }, { id: 'higiene', n: 'Higiene pessoal', c: 'higiene' }, { id: 'limpeza', n: 'Limpeza', c: 'limpeza' },
+  { id: 'cereais', n: 'Cereais, pão de forma, ovos e leite', c: 'lact' }, { id: 'cafe', n: 'Café, bolachas e frutos secos', c: 'pad' },
+  { id: 'carne', n: 'Carne e peixe', c: 'carne' }, { id: 'frios', n: 'Frios e congelados', c: 'cong' }];
+const COLORS = ['fruta', 'talho', 'carne', 'pad', 'merc', 'lact', 'peixe', 'cong', 'limpeza', 'bebidas', 'higiene', 'outros'];
+let CATS = [], CVAR = {}, CATN = {};
+function setCats(list) {
+  const src = Array.isArray(list) && list.length ? list : DEFAULT_CATS;
+  CATS = src.filter(c => c && c.id && c.n).map(c => ({ id: String(c.id), n: String(c.n), c: COLORS.includes(c.c) ? c.c : 'outros' }));
+  CVAR = Object.fromEntries(CATS.map(c => [c.id, '--c-' + c.c]));
+  CATN = Object.fromEntries(CATS.map(c => [c.id, c.n]));
+}
+setCats();
 const DICT = {
   fruta: 'banana,maçã,pera,laranja,tangerina,limão,kiwi,uvas,morangos,melão,melancia,ananás,manga,abacate,pêssego,ameixa,mirtilos,framboesas,batata,batata-doce,cebola,alho,cenoura,tomate,alface,rúcula,espinafres,couve,couve-flor,brócolos,pepino,curgete,beringela,pimento,cogumelos,abóbora,feijão-verde,alho-francês,nabo,salsa,coentros,hortelã,gengibre,sopa de legumes',
   charc: 'fiambre,fiambre de peru,fiambre de frango,queijo,queijo fatiado,queijo flamengo,queijo ralado,queijo fresco,queijo da serra,mozzarella,requeijão,presunto,chouriço,salpicão,paio,mortadela,bacon,salsichas,alheira,farinheira,peito de peru fatiado',
   bebidas: 'água,água com gás,água das pedras,sumo,sumo de laranja,néctar,coca-cola,coca-cola zero,refrigerante,ice tea,sumol,compal,7up,fanta,cerveja,vinho,vinho tinto,vinho branco,espumante',
-  merc: 'arroz agulha,arroz carolino,lentilhas,cuscuz,puré de batata,massa de lasanha,leite UHT,iogurtes naturais,iogurtes gregos,queijo creme,pão,carcaças,broa,bolo,leite,leite meio-gordo,leite magro,leite com chocolate,iogurtes,iogurte líquido,manteiga,margarina,natas,danoninhos,gelatina,arroz,massa,esparguete,massa de cotovelos,farinha,açúcar,sal,azeite,óleo,vinagre,feijão,grão-de-bico,ervilhas,atum em lata,polpa de tomate,ketchup,maionese,mostarda,chá,cacau,chocolate,batatas fritas,frutos secos,caldos,especiarias,pimenta,orégãos,fermento,tremoços,azeitonas,frango,peito de frango,carne picada,bifes,bifes de peru,lombo de porco,costeletas,entrecosto,febras,hambúrgueres,pescada,bacalhau,salmão,dourada,sardinhas,atum,polvo,camarão,douradinhos,gelado,pizza,legumes congelados,nuggets,lasanha,guardanapos,rolo de cozinha,rolos de cozinha,papel de cozinha,papel de alumínio,película aderente,sacos de congelação',
-  cereais: 'cereais,cereais de chocolate,corn flakes,granola,muesli,flocos de aveia,aveia,papas,papa infantil,cereais infantis,boiões,boião de fruta,leite infantil,pão de forma,pão de forma integral,pão de leite,tostas,tostas integrais,wraps,tortilhas,ovos,ovos caseiros,ovos de galinhas livres,mel,compota,doce de morango,bebida de aveia,bebida de soja,bebida de amêndoa,bebida de arroz',
-  cafe: 'café,café moído,café em grão,cápsulas de café,café solúvel,bolachas,bolachas maria,bolachas de água e sal,bolachas de chocolate,bolachas digestivas',
+  merc: 'arroz,arroz agulha,arroz carolino,massa,esparguete,massa espiral,massa de cotovelos,massa de lasanha,lentilhas,cuscuz,puré de batata,pão,carcaças,broa,bolo,farinha,açúcar,sal,azeite,óleo,vinagre,feijão,grão-de-bico,atum em lata,polpa de tomate,ketchup,maionese,mostarda,chá,cacau,chocolate,batatas fritas,caldos,especiarias,pimenta,orégãos,fermento,tremoços,azeitonas,gelatina,guardanapos,rolo de cozinha,rolos de cozinha,papel de cozinha,papel de alumínio,película aderente,sacos de congelação',
   higiene: 'papel higiénico,gel de banho,champô,amaciador de cabelo,pasta de dentes,escovas de dentes,elixir,fio dentário,desodorizante,lâminas,espuma de barbear,creme hidratante,cotonetes,algodão,lenços,toalhitas,fraldas,pensos,protetor solar,sabonete',
-  limpeza: 'detergente da loiça,pastilhas da máquina,detergente da roupa,amaciador,lixívia,limpa-vidros,desengordurante,limpa-chão,esponjas,sacos do lixo,tira-nódoas'
+  limpeza: 'detergente da loiça,pastilhas da máquina,detergente da roupa,amaciador,lixívia,limpa-vidros,desengordurante,limpa-chão,esponjas,sacos do lixo,tira-nódoas',
+  cereais: 'leite,leite meio-gordo,leite magro,leite gordo,leite UHT,leite sem lactose,leite com chocolate,leite achocolatado,leite infantil,cereais,cereais de chocolate,corn flakes,granola,muesli,flocos de aveia,aveia,papas,papa infantil,cereais infantis,boiões,boião de fruta,pão de forma,pão de forma integral,pão de leite,tostas,tostas integrais,wraps,tortilhas,ovos,ovos caseiros,ovos de galinhas livres,mel,compota,doce de morango,bebida de aveia,bebida de soja,bebida de amêndoa,bebida de arroz',
+  cafe: 'café,café moído,café em grão,cápsulas de café,café solúvel,bolachas,bolachas maria,bolachas de água e sal,bolachas de chocolate,bolachas digestivas,frutos secos,amêndoa,amêndoas,amêndoa palitada,amêndoa laminada,nozes,castanhas,castanhas de caju,cajus,amendoins,avelãs,pistácios,pinhões,passas,sementes de girassol,mistura de frutos secos',
+  carne: 'carne,frango,frango inteiro,peito de frango,coxas de frango,asas de frango,peru,bifes de peru,carne picada,bifes,lombo de porco,costeletas,entrecosto,febras,vitela,novilho,borrego,hambúrgueres,peixe,pescada,filetes de pescada,bacalhau,salmão,dourada,robalo,sardinhas,carapau,atum,polvo,lulas,choco,camarão',
+  frios: 'iogurtes,iogurte,iogurte líquido,iogurtes líquidos,iogurtes sólidos,iogurtes naturais,iogurtes gregos,danoninhos,manteiga,margarina,natas,queijo creme,gelado,gelados,ervilhas,ervilhas congeladas,batatas fritas congeladas,legumes congelados,espinafres congelados,brócolos congelados,pizza,nuggets,lasanha,douradinhos,camarão congelado,congelados'
 };
 // Secções antigas (versão 1) passam para as novas
-const LEGACY = { padaria: 'merc', talho: 'merc', peixe: 'merc', lact: 'merc', cong: 'merc', outros: 'merc' };
+const LEGACY = { padaria: 'merc', talho: 'carne', peixe: 'carne', lact: 'frios', cong: 'frios', outros: 'merc' };
+const fallbackCat = () => CATN.merc ? 'merc' : CATS[0].id;
 const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 const keyOf = s => norm(s).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 150) || 'x';
 const PRODUCTS = []; for (const c in DICT) for (const n of DICT[c].split(',')) PRODUCTS.push({ name: n, cat: c, k: norm(n) });
@@ -69,23 +82,27 @@ function parse(raw) {
 }
 function guessCat(name) {
   const k = norm(name), p = prods[keyOf(name)];
-  if (p && p.cat) return p.cat;
-  const ex = PRODUCTS.find(p => p.k === k); if (ex) return ex.cat;
-  let best = null;
-  for (const p of PRODUCTS) if ((' ' + k + ' ').includes(' ' + p.k + ' ') || k.startsWith(p.k)) if (!best || p.k.length > best.k.length) best = p;
-  return best ? best.cat : 'merc';
+  if (p && p.cat && CATN[p.cat]) return p.cat;
+  return dictCat(name) || fallbackCat();
 }
 function dictCat(name) {
-  const k = norm(name || ''); const ex = PRODUCTS.find(p => p.k === k); if (ex) return ex.cat;
+  const k = norm(name || ''); const ex = PRODUCTS.find(p => p.k === k); if (ex && CATN[ex.cat]) return ex.cat;
   let best = null;
   for (const p of PRODUCTS) if ((' ' + k + ' ').includes(' ' + p.k + ' ') || k.startsWith(p.k)) if (!best || p.k.length > best.k.length) best = p;
-  return best ? best.cat : null;
+  return best && CATN[best.cat] ? best.cat : null;
 }
-// Secção válida: a guardada, ou para secções antigas a do dicionário (fiambre → charcutaria)
-const normCat = (cat, name) => {
-  if (cat === 'merc') { const d = dictCat(name); if (d === 'cafe' || d === 'cereais') return d; } // saíram da mercearia
-  return CATN[cat] ? cat : (dictCat(name) || LEGACY[cat] || 'merc');
+// Arrumação: se mudaste a secção à mão (catManual), fica a tua; senão a app arruma sozinha pelo nome
+const normCat = (cat, name, manual) => {
+  if (manual && CATN[cat]) return cat;
+  const d = dictCat(name); if (d) return d;
+  if (CATN[cat]) return cat;
+  const l = LEGACY[cat]; return l && CATN[l] ? l : fallbackCat();
 };
+// Volta a arrumar tudo (quando chegam produtos ou mudam as secções)
+function renorm() {
+  for (const id in prods) { const p = prods[id]; p.cat = normCat(p.rawCat, p.name, p.catManual); }
+  for (const i of items) { const p = prods[i.key]; i.cat = p && !p.hidden ? p.cat : normCat(i.rawCat, i.name, i.catManual); }
+}
 /* ---------- desenho ---------- */
 const curList = () => lists.find(l => l.id === curId);
 const CHECK = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--surface)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
@@ -115,7 +132,7 @@ function render() {
   if (!items.length) { main.innerHTML = `<div class="empty"><h3>Lista vazia</h3><p>Escreve o produto como o compras, com marca e sabor: “2 iogurte líquido morango Mimosa”. Da próxima vez basta um toque.</p></div>`; return; }
   const known = new Set(CATS.map(c => c.id));
   for (const c of CATS) {
-    const g = todo.filter(i => (known.has(i.cat) ? i.cat : 'merc') === c.id).sort((a, b) => a.name.localeCompare(b.name, 'pt'));
+    const g = todo.filter(i => (known.has(i.cat) ? i.cat : fallbackCat()) === c.id).sort((a, b) => a.name.localeCompare(b.name, 'pt'));
     if (!g.length) continue;
     h += `<section class="aisle"><h2><span class="dot" style="${cc(c.id)}"></span>${c.n}<span class="n">${g.length}</span></h2><div class="items">${g.map(itemRow).join('')}</div></section>`;
   }
@@ -195,7 +212,7 @@ function selectList(id) {
   curId = id; try { localStorage.setItem('compras.cur', id); } catch (e) { }
   items = []; itemsLoaded = false; render();
   if (unsubItems) unsubItems();
-  unsubItems = onSnapshot(itemsCol(), s => { items = s.docs.map(d => { const x = d.data(); return { id: d.id, ...x, cat: normCat(x.cat, x.name) }; }); itemsLoaded = true; render(); showSugg(); }, e => { itemsLoaded = true; onErr(e); render(); });
+  unsubItems = onSnapshot(itemsCol(), s => { items = s.docs.map(d => { const x = d.data(); return { id: d.id, ...x, rawCat: x.cat }; }); renorm(); itemsLoaded = true; render(); showSugg(); }, e => { itemsLoaded = true; onErr(e); render(); });
 }
 
 /* ---------- folhas ---------- */
@@ -281,8 +298,9 @@ function editItem(id) {
     bindCatGrid(root, v => cat = v);
     $('ed-save').onclick = () => {
       const name = cap($('ed-name').value.trim()) || it.name, qty = $('ed-qty').value.trim(), key = keyOf(name);
-      run(updateDoc(doc(itemsCol(), id), { name, key, prodId: key, qty, cat }));
-      run(setDoc(doc(db, 'casas', casaId, 'produtos', key), { name, cat, hidden: false, ...(key !== pid && p ? { uses: increment(p.uses || 1) } : {}) }, { merge: true }));
+      const man = cat !== it.cat ? { catManual: true } : {};
+      run(updateDoc(doc(itemsCol(), id), { name, key, prodId: key, qty, cat, ...man }));
+      run(setDoc(doc(db, 'casas', casaId, 'produtos', key), { name, cat, ...man, hidden: false, ...(key !== pid && p ? { uses: increment(p.uses || 1) } : {}) }, { merge: true }));
       closeSheet();
     };
     $('ed-del').onclick = () => {
@@ -295,7 +313,8 @@ function editProduct(pid, opts = {}) {
   const p = prods[pid] || (opts.name ? { id: pid, name: opts.name, cat: opts.cat, uses: 0, virtual: true } : null);
   if (!p) return;
   const back = opts.back || (catalogOpen ? openCatalog : null);
-  let cat = p.cat || 'merc', armed = false;
+  let cat = p.cat || fallbackCat(), armed = false;
+  const orig = cat;
   const inList = items.find(i => i.key === pid && !i.done);
   const done = () => { if (back) back(); else closeSheet(); };
   openSheet(`<h3>${esc(p.name)}</h3>
@@ -306,10 +325,11 @@ function editProduct(pid, opts = {}) {
     bindCatGrid(root, v => cat = v);
     const save = () => {
       const name = cap($('pp-name').value.trim()) || p.name, key = keyOf(name);
-      if (key === pid) run(setDoc(doc(db, 'casas', casaId, 'produtos', pid), { name, cat, hidden: false, ...(p.virtual ? { uses: 0 } : {}) }, { merge: true }));
+      const man = cat !== orig ? { catManual: true } : (p.catManual ? { catManual: true } : {});
+      if (key === pid) run(setDoc(doc(db, 'casas', casaId, 'produtos', pid), { name, cat, ...man, hidden: false, ...(p.virtual ? { uses: 0 } : {}) }, { merge: true }));
       else {
         // mudou o nome: o novo fica com o histórico, o antigo deixa de aparecer
-        run(setDoc(doc(db, 'casas', casaId, 'produtos', key), { name, cat, hidden: false, uses: increment(p.uses || 0) }, { merge: true }));
+        run(setDoc(doc(db, 'casas', casaId, 'produtos', key), { name, cat, ...man, hidden: false, uses: increment(p.uses || 0) }, { merge: true }));
         run(setDoc(doc(db, 'casas', casaId, 'produtos', pid), { name: p.name, cat: p.cat || cat, hidden: true, renamedTo: key }, { merge: true }));
       }
       return { name, cat };
@@ -323,17 +343,17 @@ function editProduct(pid, opts = {}) {
   });
 }
 function newProduct() {
-  let cat = 'merc';
+  let cat = fallbackCat(), picked = false;
   openSheet(`<h3>Novo produto</h3>
     <div class="field"><label for="np-name">Nome como o compras</label><input id="np-name" placeholder="ex.: Iogurte líquido Mimosa morango"></div>
     <div class="field"><span class="l">Secção</span>${catGrid(cat)}</div>
     <div class="row"><button class="btn ghost" id="np-cancel">Cancelar</button><button class="btn" id="np-save">Guardar</button></div>`, root => {
-    bindCatGrid(root, v => cat = v);
-    $('np-name').addEventListener('input', e => { const g = dictCat(e.target.value); if (g) { cat = g; root.querySelectorAll('[data-pick]').forEach(x => x.setAttribute('aria-pressed', x.dataset.pick === g)); } });
+    bindCatGrid(root, v => { cat = v; picked = true; });
+    $('np-name').addEventListener('input', e => { const g = dictCat(e.target.value); if (g && !picked) { cat = g; root.querySelectorAll('[data-pick]').forEach(x => x.setAttribute('aria-pressed', x.dataset.pick === g)); } });
     $('np-cancel').onclick = openCatalog;
     $('np-save').onclick = () => {
       const name = cap($('np-name').value.trim()); if (!name) return;
-      run(setDoc(doc(db, 'casas', casaId, 'produtos', keyOf(name)), { name, cat, hidden: false, uses: increment(0) }, { merge: true }));
+      run(setDoc(doc(db, 'casas', casaId, 'produtos', keyOf(name)), { name, cat, ...(picked ? { catManual: true } : {}), hidden: false, uses: increment(0) }, { merge: true }));
       toast('Juntado ao catálogo'); openCatalog();
     };
     $('np-name').focus();
@@ -362,15 +382,64 @@ function openHabituais() {
     });
   });
 }
+/* ---------- editar secções ---------- */
+function openSeccoes() {
+  let work = CATS.map(c => ({ ...c })), armed = -1;
+  const count = id => Object.values(prods).filter(p => !p.hidden && p.cat === id).length;
+  const rows = () => work.map((c, i) => `<div class="secrow" style="--cc:var(--c-${c.c})">
+      <button type="button" class="swatch" data-color="${i}" aria-label="Mudar a cor de ${esc(c.n)}"></button>
+      <div class="secname"><input data-name="${i}" value="${esc(c.n)}" aria-label="Nome da secção"><span class="hint">${count(c.id) === 1 ? '1 produto' : count(c.id) + ' produtos'}</span></div>
+      <button type="button" class="ib" data-up="${i}" aria-label="Subir" ${i === 0 ? 'disabled' : ''}>↑</button>
+      <button type="button" class="ib" data-down="${i}" aria-label="Descer" ${i === work.length - 1 ? 'disabled' : ''}>↓</button>
+      <button type="button" class="ib del" data-del="${i}" aria-label="Apagar ${esc(c.n)}">${armed === i ? 'Apagar?' : '✕'}</button></div>`).join('');
+  openSheet(`<h3>Secções</h3>
+    <p class="hint">A ordem é a dos corredores da loja. Toca na bola para mudar a cor. A app continua a arrumar sozinha os produtos novos; os que mudas de secção à mão ficam onde os puseste.</p>
+    <div id="sec-body" class="secs">${rows()}</div>
+    <button type="button" class="btn ghost" id="sec-add">+ Nova secção</button>
+    <div class="row"><button type="button" class="btn ghost" id="sec-cancel">Cancelar</button><button type="button" class="btn" id="sec-save">Guardar</button></div>
+    <button type="button" class="link" id="sec-reset">Repor as secções de origem</button>`, root => {
+    const body = $('sec-body'), redraw = () => { body.innerHTML = rows(); };
+    body.addEventListener('input', e => { const i = e.target.dataset.name; if (i !== undefined) work[+i].n = e.target.value; });
+    body.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      const d = b.dataset;
+      if (d.color !== undefined) { const c = work[+d.color]; c.c = COLORS[(COLORS.indexOf(c.c) + 1) % COLORS.length]; armed = -1; }
+      else if (d.up !== undefined) { const i = +d.up; [work[i - 1], work[i]] = [work[i], work[i - 1]]; armed = -1; }
+      else if (d.down !== undefined) { const i = +d.down; [work[i + 1], work[i]] = [work[i], work[i + 1]]; armed = -1; }
+      else if (d.del !== undefined) {
+        const i = +d.del;
+        if (work.length <= 1) { toast('Tem de ficar pelo menos uma secção'); return; }
+        if (armed !== i) { armed = i; redraw(); toast(count(work[i].id) ? 'Os produtos desta secção voltam a ser arrumados sozinhos' : 'Toca outra vez para apagar'); return; }
+        work.splice(i, 1); armed = -1;
+      }
+      redraw();
+    });
+    $('sec-add').onclick = () => {
+      const used = new Set(work.map(c => c.c)), c = COLORS.find(x => !used.has(x)) || 'outros';
+      work.push({ id: 's' + Date.now().toString(36), n: 'Nova secção', c }); armed = -1; redraw();
+      const inp = body.querySelector(`[data-name="${work.length - 1}"]`); if (inp) { inp.focus(); inp.select(); }
+    };
+    $('sec-reset').onclick = () => { work = DEFAULT_CATS.map(c => ({ ...c })); armed = -1; redraw(); toast('Toca em Guardar para confirmar'); };
+    $('sec-cancel').onclick = closeSheet;
+    $('sec-save').onclick = () => {
+      const list = work.map(c => ({ id: c.id, n: cap(c.n.trim()) || 'Sem nome', c: c.c }));
+      setCats(list); renorm(); render();
+      run(setDoc(doc(db, 'casas', casaId, 'config', 'seccoes'), { list, at: Date.now() }));
+      closeSheet(); toast('Secções guardadas');
+    };
+  });
+}
+
 function openMenu() {
   openSheet(`<h3>Compras</h3><div class="menu">
     <button class="mi" data-m="casa">${esc(casa && casa.name || 'A minha casa')}<span class="sub">Convidar a família · ${casa && casa.members ? casa.members.length : 1} ${casa && casa.members && casa.members.length === 1 ? 'pessoa' : 'pessoas'}</span></button>
     <button class="mi" data-m="hab">Produtos habituais<span class="sub">${myProds().filter(p => (p.uses || 0) > 0).length} guardados</span></button>
+    <button class="mi" data-m="seccoes">Secções<span class="sub">Mudar nomes, ordem e cores · criar ou apagar</span></button>
     <button class="mi" data-m="lists">Listas<span class="sub">Criar, mudar o nome ou apagar</span></button>
     <button class="mi" data-m="out">Sair<span class="sub">${esc(user && user.email)}</span></button></div>`, root => {
     root.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
       const m = b.dataset.m;
-      if (m === 'hab') openHabituais(); else if (m === 'casa') openCasa(); else if (m === 'lists') manageLists();
+      if (m === 'hab') openHabituais(); else if (m === 'casa') openCasa(); else if (m === 'lists') manageLists(); else if (m === 'seccoes') openSeccoes();
       else { closeSheet(); signOut(auth); }
     });
   });
@@ -469,7 +538,7 @@ function show(view) {
   ['login-view', 'casa-view', 'wait-view', 'app-view'].forEach(v => $(v).hidden = v !== view);
   if (view === 'casa-view') { ['cs-name', 'cs-code'].forEach(i => $(i).value = ''); $('cs-err').textContent = ''; showInviteCard(); }
 }
-function stopAll() { unsub.forEach(f => f()); unsub = []; if (unsubItems) unsubItems(); unsubItems = null; lists = []; items = []; prods = {}; listsLoaded = false; itemsLoaded = false; casaId = null; casa = null; }
+function stopAll() { unsub.forEach(f => f()); unsub = []; if (unsubItems) unsubItems(); unsubItems = null; lists = []; items = []; prods = {}; listsLoaded = false; itemsLoaded = false; casaId = null; casa = null; setCats(); }
 
 function setSignup(on) {
   signupMode = on;
@@ -630,7 +699,8 @@ function startData() {
     else if (curId && !unsubItems && lists.find(l => l.id === curId)) selectList(curId);
     render();
   }, e => { listsLoaded = true; onErr(e); render(); }));
-  unsub.push(onSnapshot(collection(db, 'casas', casaId, 'produtos'), s => { prods = {}; s.docs.forEach(d => { const x = d.data(); prods[d.id] = { id: d.id, ...x, cat: normCat(x.cat, x.name) }; }); render(); }, onErr));
+  unsub.push(onSnapshot(doc(db, 'casas', casaId, 'config', 'seccoes'), s => { setCats(s.exists() ? s.data().list : null); renorm(); render(); }, () => { }));
+  unsub.push(onSnapshot(collection(db, 'casas', casaId, 'produtos'), s => { prods = {}; s.docs.forEach(d => { const x = d.data(); prods[d.id] = { id: d.id, ...x, rawCat: x.cat }; }); renorm(); render(); }, onErr));
 }
 
 function openCasa() {
