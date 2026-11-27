@@ -145,6 +145,15 @@ function render() {
 }
 
 /* ---------- sugestões ---------- */
+// Habituais por lista: cada produto conta quantas vezes foi posto em cada lista (usesByList).
+// Produtos de antes desta versão contam para a primeira lista e para a lista onde estão agora.
+function listUses(p, L = curId) {
+  if (!p || !L) return 0;
+  if (p.usesByList) return p.usesByList[L] || 0;
+  if (items.some(i => i.key === p.id) && L === curId) return p.uses || 1;
+  return lists[0] && L === lists[0].id ? (p.uses || 0) : 0;
+}
+const listName = () => (curList() ? curList().name : 'esta lista');
 function suggestions(text) {
   const k = norm(text); if (!k) return [];
   const words = k.split(' ');
@@ -152,7 +161,7 @@ function suggestions(text) {
   const out = [], seen = new Set();
   const push = (name, cat, hab) => { const kk = keyOf(name); if (seen.has(kk) || inList.has(kk)) return; seen.add(kk); out.push({ name: cap(name), cat, hab }); };
   Object.values(prods).filter(p => { if (p.hidden) return false; const n = norm(p.name); return words.every(w => n.includes(w)); })
-    .sort((a, b) => (norm(b.name).startsWith(k) - norm(a.name).startsWith(k)) || ((b.uses || 0) - (a.uses || 0))).slice(0, 5).forEach(p => push(p.name, p.cat, true));
+    .sort((a, b) => ((listUses(b) > 0) - (listUses(a) > 0)) || (norm(b.name).startsWith(k) - norm(a.name).startsWith(k)) || (listUses(b) - listUses(a)) || ((b.uses || 0) - (a.uses || 0))).slice(0, 5).forEach(p => push(p.name, p.cat, listUses(p) > 0 ? 'here' : 'other'));
   PRODUCTS.filter(p => p.k.startsWith(k)).concat(PRODUCTS.filter(p => !p.k.startsWith(k) && p.k.includes(k))).forEach(p => out.length < 8 && push(p.name, p.cat, false));
   return out.slice(0, 8);
 }
@@ -161,16 +170,20 @@ function showSugg() {
   if (document.activeElement !== $('add-input')) { el.hidden = true; return; }
   if (!raw.trim()) {
     const inList = new Set(items.filter(i => !i.done).map(i => i.key));
-    const fav = Object.values(prods).filter(p => !p.hidden && (p.uses || 0) > 0 && !inList.has(p.id)).sort((a, b) => (b.uses || 0) - (a.uses || 0)).slice(0, 16);
+    const mine = Object.values(prods).filter(p => !p.hidden && !inList.has(p.id));
+    const here = mine.filter(p => listUses(p) > 0).sort((a, b) => listUses(b) - listUses(a)).slice(0, 18);
+    const other = here.length >= 8 ? [] : mine.filter(p => listUses(p) === 0 && (p.uses || 0) > 0).sort((a, b) => (b.uses || 0) - (a.uses || 0)).slice(0, 10 - here.length);
     suggList = []; selIdx = -1;
-    if (!fav.length) { el.hidden = true; return; }
-    el.innerHTML = `<div class="lbl">Habituais</div><div class="chips">${fav.map(p => `<button type="button" data-quick="${esc(p.id)}"><span class="dot" style="${cc(p.cat)}"></span>${esc(p.name)}</button>`).join('')}</div>`;
+    if (!here.length && !other.length) { el.hidden = true; return; }
+    const chips = arr => `<div class="chips">${arr.map(p => `<button type="button" data-quick="${esc(p.id)}"><span class="dot" style="${cc(p.cat)}"></span>${esc(p.name)}</button>`).join('')}</div>`;
+    el.innerHTML = (here.length ? `<div class="lbl">Habituais · ${esc(listName())}</div>${chips(here)}` : `<div class="lbl">Ainda não há habituais em ${esc(listName())}</div>`) +
+      (other.length ? `<div class="lbl">De outras listas</div>${chips(other)}` : '');
     el.hidden = false; return;
   }
   suggList = suggestions(name);
   if (!suggList.length) { el.hidden = true; return; }
   if (selIdx >= suggList.length) selIdx = -1;
-  el.innerHTML = suggList.map((s, i) => `<button type="button" class="s" data-sugg="${i}" aria-selected="${i === selIdx}"><span class="dot" style="${cc(s.cat)}"></span>${esc(s.name)}${s.hab ? '<span class="star">Habitual</span>' : `<span class="cat">${CATN[s.cat]}</span>`}</button>`).join('');
+  el.innerHTML = suggList.map((s, i) => `<button type="button" class="s" data-sugg="${i}" aria-selected="${i === selIdx}"><span class="dot" style="${cc(s.cat)}"></span>${esc(s.name)}${s.hab === 'here' ? '<span class="star">Habitual</span>' : s.hab ? '<span class="cat">Outra lista</span>' : `<span class="cat">${CATN[s.cat]}</span>`}</button>`).join('');
   el.hidden = false;
 }
 
@@ -178,7 +191,11 @@ function showSugg() {
 const itemsCol = () => collection(db, 'casas', casaId, 'lists', curId, 'items');
 function touchProduct(name, cat, inc = 1) {
   const id = keyOf(name);
-  run(setDoc(doc(db, 'casas', casaId, 'produtos', id), { name, cat, uses: increment(inc), lastAt: Date.now(), hidden: false }, { merge: true }));
+  const p = prods[id], byList = {};
+  // primeira vez com contagem por lista: guarda a história antiga na primeira lista
+  if (p && !p.usesByList && lists[0] && lists[0].id !== curId && (p.uses || 0) > 0) byList[lists[0].id] = p.uses;
+  if (curId) byList[curId] = increment(inc);
+  run(setDoc(doc(db, 'casas', casaId, 'produtos', id), { name, cat, uses: increment(inc), usesByList: byList, lastAt: Date.now(), hidden: false }, { merge: true }));
   return id;
 }
 function addItem(raw, forcedCat) {
@@ -244,17 +261,19 @@ function closeSheet(fromBack) {
 }
 
 /* ---------- produtos por secção ---------- */
-let catalogOpen = false, catFilter = '', catMode = 'meus';
+let catalogOpen = false, catFilter = '', catMode = 'lista';
 const myProds = () => Object.values(prods).filter(p => p.name && !p.hidden);
 function catalogBody() {
   const inList = new Set(items.filter(i => !i.done).map(i => i.key));
   const f = norm(catFilter), words = f ? f.split(' ') : [];
   const match = n => words.every(w => norm(n).includes(w));
-  const all = catMode === 'todos';
+  const all = catMode === 'todos', only = catMode === 'lista';
+  const mine = only ? myProds().filter(p => listUses(p) > 0) : myProds();
+  const score = p => only ? listUses(p) : (p.uses || 0);
   let html = '';
   for (const c of CATS) {
     const seen = new Set(), list = [];
-    myProds().filter(p => p.cat === c.id).sort((a, b) => (b.uses || 0) - (a.uses || 0) || a.name.localeCompare(b.name, 'pt'))
+    mine.filter(p => p.cat === c.id).sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name, 'pt'))
       .forEach(p => { if (!seen.has(p.id)) { seen.add(p.id); list.push({ name: p.name, hab: true }); } });
     if (all) PRODUCTS.filter(p => p.cat === c.id).sort((a, b) => a.name.localeCompare(b.name, 'pt'))
       .forEach(p => { const k = keyOf(p.name); if (!seen.has(k) && !prods[k]) { seen.add(k); list.push({ name: cap(p.name), hab: false }); } });
@@ -266,11 +285,13 @@ function catalogBody() {
     const hid = Object.values(prods).filter(p => p.hidden && !p.renamedTo && p.name && match(p.name)).sort((a, b) => a.name.localeCompare(b.name, 'pt'));
     if (hid.length) html += `<details class="catsec"><summary class="hint">Escondidos (${hid.length}) · toca num para voltar a mostrar</summary><div class="pick" style="margin-top:8px">${hid.map(p => `<button type="button" data-unhide="${esc(p.id)}" style="${cc(p.cat)}">${esc(p.name)}</button>`).join('')}</div></details>`;
   }
+  if (!html && only && !f) return `<div class="empty" style="padding:24px 8px"><h3>Ainda não há habituais em ${esc(listName())}</h3><p>O que puseres nesta lista passa a aparecer aqui. Escolhe os primeiros nos teus produtos ou no catálogo.</p><div class="row"><button type="button" class="btn ghost" data-mode="meus">Todos os meus</button><button type="button" class="btn ghost" data-mode="todos">Catálogo</button></div></div>`;
   if (!html) {
     if (!all && !f) return '<div class="empty" style="padding:24px 8px"><h3>Ainda não tens produtos</h3><p>Cada produto que pões na lista fica aqui. Escolhe os primeiros no catálogo completo.</p><button type="button" class="btn ghost" data-mode="todos">Abrir catálogo completo</button></div>';
     return `<p class="hint">Nenhum produto com esse nome.${all ? ' Usa “+ Novo” para o criar.' : ''}</p>${all ? '' : '<button type="button" class="btn ghost" data-mode="todos">Procurar no catálogo completo</button>'}`;
   }
-  if (!all) html += '<button type="button" class="btn ghost" data-mode="todos">Não está aqui? Ver catálogo completo</button>';
+  if (only) html += '<button type="button" class="btn ghost" data-mode="meus">Não está aqui? Ver todos os meus produtos</button>';
+  else if (!all) html += '<button type="button" class="btn ghost" data-mode="todos">Não está aqui? Ver catálogo completo</button>';
   return html;
 }
 function refreshCatalog() {
@@ -279,13 +300,14 @@ function refreshCatalog() {
 }
 function openCatalog(mode) {
   if (!curList()) return;
-  if (mode === 'meus' || mode === 'todos') catMode = mode;
+  if (mode === 'lista' || mode === 'meus' || mode === 'todos') catMode = mode;
   catFilter = '';
-  const all = catMode === 'todos', n = myProds().length;
-  openSheet(`<h3>${all ? 'Catálogo completo' : 'Os meus produtos'}</h3>
-    <div class="seg" role="tablist"><button type="button" role="tab" data-mode="meus" aria-selected="${!all}">Os meus (${n})</button><button type="button" role="tab" data-mode="todos" aria-selected="${all}">Catálogo completo</button></div>
+  const all = catMode === 'todos', only = catMode === 'lista', n = myProds().length, nl = myProds().filter(p => listUses(p) > 0).length;
+  const shownCats = all ? CATS : CATS.filter(c => myProds().some(p => p.cat === c.id && (!only || listUses(p) > 0)));
+  openSheet(`<h3>${all ? 'Catálogo completo' : only ? 'Habituais · ' + esc(listName()) : 'Os meus produtos'}</h3>
+    <div class="seg" role="tablist"><button type="button" role="tab" data-mode="lista" aria-selected="${only}">${esc(listName())} (${nl})</button><button type="button" role="tab" data-mode="meus" aria-selected="${catMode === 'meus'}">Todos (${n})</button><button type="button" role="tab" data-mode="todos" aria-selected="${all}">Catálogo</button></div>
     <div class="row"><input id="cat-filter" type="search" placeholder="Filtrar… ex.: iogurte" aria-label="Filtrar produtos" style="flex:3"><button type="button" class="btn ghost" id="cat-new" style="flex:1">+ Novo</button></div>
-    <nav class="cat-jump">${CATS.filter(c => all || myProds().some(p => p.cat === c.id)).map(c => `<button type="button" data-jump="${c.id}" style="${cc(c.id)}"><span class="dot"></span>${c.n}</button>`).join('')}</nav>
+    <nav class="cat-jump">${shownCats.map(c => `<button type="button" data-jump="${c.id}" style="${cc(c.id)}"><span class="dot"></span>${c.n}</button>`).join('')}</nav>
     <div id="cat-body" style="display:flex;flex-direction:column;gap:18px">${catalogBody()}</div>
     <p class="hint">Toca para pôr na lista ou tirar. Mantém o dedo em cima de um produto para lhe mudar o nome, a secção, ou para o esconder.${all ? ' O que escolheres aqui passa a fazer parte dos teus produtos.' : ''}</p>
     <button class="btn" id="cat-done">Fechar</button>`, root => {
@@ -379,9 +401,9 @@ function newProduct() {
   });
 }
 function habBody() {
-  const all = Object.values(prods).filter(p => p.name && !p.hidden && (p.uses || 0) > 0).sort((a, b) => (b.uses || 0) - (a.uses || 0));
+  const all = Object.values(prods).filter(p => p.name && !p.hidden && listUses(p) > 0).sort((a, b) => listUses(b) - listUses(a));
   const inList = new Set(items.filter(i => !i.done).map(i => i.key));
-  return all.length ? all.map(p => `<button class="hab" data-hk="${esc(p.id)}" data-lp="prod:${esc(p.id)}" aria-pressed="${inList.has(p.id)}"><span class="dot" style="${cc(p.cat)}"></span><span class="name">${esc(p.name)}</span><span class="uses">${p.uses || 0}×</span></button>`).join('') : '<p class="hint">Ainda não há produtos. Adiciona o primeiro na lista.</p>';
+  return all.length ? all.map(p => `<button class="hab" data-hk="${esc(p.id)}" data-lp="prod:${esc(p.id)}" aria-pressed="${inList.has(p.id)}"><span class="dot" style="${cc(p.cat)}"></span><span class="name">${esc(p.name)}</span><span class="uses">${listUses(p)}×</span></button>`).join('') : `<p class="hint">Ainda não há habituais em ${esc(listName())}. O que puseres nesta lista passa a aparecer aqui.</p>`;
 }
 function toggleProduct(name, cat) {
   const key = keyOf(name), it = items.find(i => i.key === key && !i.done);
@@ -389,7 +411,7 @@ function toggleProduct(name, cat) {
   addItem(name, cat); return true;
 }
 function openHabituais() {
-  openSheet(`<h3>Produtos habituais</h3>
+  openSheet(`<h3>Habituais · ${esc(listName())}</h3>
     <p class="hint">Toca para pôr na lista “${esc(curList() ? curList().name : '')}” ou tirar. Mantém o dedo em cima para mudar o nome ou a secção.</p>
     <div id="hab-body">${habBody()}</div>
     <button class="btn" id="hab-done">Fechar</button>`, () => {
@@ -505,7 +527,7 @@ addEventListener('compras-update', () => { updReady = true; paintBell(); });
 function openMenu() {
   openSheet(`<h3>Compras</h3><div class="menu">
     <button class="mi" data-m="casa">${esc(casa && casa.name || 'A minha casa')}<span class="sub">Convidar a família · ${casa && casa.members ? casa.members.length : 1} ${casa && casa.members && casa.members.length === 1 ? 'pessoa' : 'pessoas'}</span></button>
-    <button class="mi" data-m="hab">Produtos habituais<span class="sub">${myProds().filter(p => (p.uses || 0) > 0).length} guardados</span></button>
+    <button class="mi" data-m="hab">Habituais · ${esc(listName())}<span class="sub">${myProds().filter(p => listUses(p) > 0).length} produtos desta lista</span></button>
     <button class="mi" data-m="seccoes">Secções<span class="sub">Mudar nomes, ordem e cores · criar ou apagar</span></button>
     <button class="mi" data-m="lists">Listas<span class="sub">Criar, mudar o nome ou apagar</span></button>
     <button class="mi" data-m="out">Sair<span class="sub">${esc(user && user.email)}</span></button></div>`, root => {
@@ -583,7 +605,7 @@ document.addEventListener('click', e => {
   else if (t.dataset.act === 'lists') manageLists();
   else if (t.dataset.act === 'menu') openMenu();
   else if (t.dataset.act === 'clear') clearDone();
-  else if (t.dataset.act === 'catalog') openCatalog('meus');
+  else if (t.dataset.act === 'catalog') openCatalog('lista');
   else if (t.dataset.act === 'inv-yes') acceptInvite();
   else if (t.dataset.act === 'inv-no') declineInvite();
 });
@@ -776,6 +798,19 @@ function startData() {
   unsub.push(onSnapshot(query(collection(db, 'casas', casaId, 'lists'), orderBy('createdAt')), s => {
     lists = s.docs.map(d => ({ id: d.id, ...d.data() }));
     listsLoaded = true;
+    // pedido do Luís: listas "Miguel" (a seguir ao Talho) e "Geral" (no fim) na Casa Leal, criadas uma só vez
+    if (casaId === LEGACY_CASA && casa && !casa.setupMiguelGeral && !(s.metadata && s.metadata.fromCache)) {
+      casa.setupMiguelGeral = true;
+      const has = n => lists.some(l => norm(l.name) === norm(n));
+      const last = lists.reduce((m, l) => Math.max(m, l.createdAt || 0), 0);
+      const talho = lists.find(l => norm(l.name) === 'talho');
+      const after = talho ? talho.createdAt || last : last;
+      const nextAfterTalho = lists.filter(l => (l.createdAt || 0) > after).reduce((m, l) => Math.min(m, l.createdAt), Infinity);
+      const miguelAt = nextAfterTalho === Infinity ? last + 1 : after + (nextAfterTalho - after) / 2;
+      if (!has('Miguel')) run(setDoc(doc(collection(db, 'casas', casaId, 'lists')), { name: 'Miguel', createdAt: miguelAt }));
+      if (!has('Geral')) run(setDoc(doc(collection(db, 'casas', casaId, 'lists')), { name: 'Geral', createdAt: Math.max(last, miguelAt) + 2 }));
+      run(updateDoc(doc(db, 'casas', casaId), { setupMiguelGeral: true }));
+    }
     if (lists.length && !lists.find(l => l.id === curId)) selectList(lists[0].id);
     else if (curId && !unsubItems && lists.find(l => l.id === curId)) selectList(curId);
     render();
