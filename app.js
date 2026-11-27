@@ -788,7 +788,29 @@ function startCasa(id) {
     }, () => { stopAll(); show('casa-view'); resolve(); }));
   });
 }
+// Pedido do Luís: listas "Miguel" (a seguir ao Talho) e "Geral" (no fim) na Casa Leal, criadas uma só vez.
+// Confirma no servidor (não na cópia guardada no telemóvel) antes de criar, para não duplicar.
+let setupChecked = false;
+async function ensureMiguelGeral() {
+  if (casaId !== LEGACY_CASA) return;
+  try {
+    const c = await getDoc(doc(db, 'casas', casaId));
+    if (c.exists() && c.data().setupMiguelGeral) return;
+    const snap = await getDocs(collection(db, 'casas', casaId, 'lists'));
+    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const has = n => all.some(l => norm(l.name) === norm(n));
+    const last = all.reduce((m, l) => Math.max(m, l.createdAt || 0), 0);
+    const talho = all.find(l => norm(l.name) === 'talho');
+    const after = talho ? (talho.createdAt || last) : last;
+    const next = all.filter(l => (l.createdAt || 0) > after).reduce((m, l) => Math.min(m, l.createdAt), Infinity);
+    const miguelAt = next === Infinity ? last + 1 : after + (next - after) / 2;
+    if (!has('Miguel')) await setDoc(doc(collection(db, 'casas', casaId, 'lists')), { name: 'Miguel', createdAt: miguelAt });
+    if (!has('Geral')) await setDoc(doc(collection(db, 'casas', casaId, 'lists')), { name: 'Geral', createdAt: Math.max(last, miguelAt) + 2 });
+    await updateDoc(doc(db, 'casas', casaId), { setupMiguelGeral: true });
+  } catch (e) { console.error(e); setupChecked = false; }
+}
 function startData() {
+  setupChecked = false;
   note('');
   if (pendingInvite && pendingInvite.casaId !== casaId) {
     const el = $('note');
@@ -798,19 +820,7 @@ function startData() {
   unsub.push(onSnapshot(query(collection(db, 'casas', casaId, 'lists'), orderBy('createdAt')), s => {
     lists = s.docs.map(d => ({ id: d.id, ...d.data() }));
     listsLoaded = true;
-    // pedido do Luís: listas "Miguel" (a seguir ao Talho) e "Geral" (no fim) na Casa Leal, criadas uma só vez
-    if (casaId === LEGACY_CASA && casa && !casa.setupMiguelGeral && !(s.metadata && s.metadata.fromCache)) {
-      casa.setupMiguelGeral = true;
-      const has = n => lists.some(l => norm(l.name) === norm(n));
-      const last = lists.reduce((m, l) => Math.max(m, l.createdAt || 0), 0);
-      const talho = lists.find(l => norm(l.name) === 'talho');
-      const after = talho ? talho.createdAt || last : last;
-      const nextAfterTalho = lists.filter(l => (l.createdAt || 0) > after).reduce((m, l) => Math.min(m, l.createdAt), Infinity);
-      const miguelAt = nextAfterTalho === Infinity ? last + 1 : after + (nextAfterTalho - after) / 2;
-      if (!has('Miguel')) run(setDoc(doc(collection(db, 'casas', casaId, 'lists')), { name: 'Miguel', createdAt: miguelAt }));
-      if (!has('Geral')) run(setDoc(doc(collection(db, 'casas', casaId, 'lists')), { name: 'Geral', createdAt: Math.max(last, miguelAt) + 2 }));
-      run(updateDoc(doc(db, 'casas', casaId), { setupMiguelGeral: true }));
-    }
+    if (!setupChecked) { setupChecked = true; ensureMiguelGeral(); }
     if (lists.length && !lists.find(l => l.id === curId)) selectList(lists[0].id);
     else if (curId && !unsubItems && lists.find(l => l.id === curId)) selectList(curId);
     render();
