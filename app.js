@@ -219,13 +219,29 @@ function selectList(id) {
 }
 
 /* ---------- folhas ---------- */
+/* ---------- botão de recuar do telemóvel ----------
+   Cada coisa aberta (janela, sugestões) ocupa um passo no histórico: recuar fecha-a em vez de sair da app. */
+const backStack = []; let ignorePops = 0;
+function pushBack(id, fn) { backStack.push({ id, fn }); try { history.pushState({ compras: id }, ''); } catch (e) { } }
+function dropBack(id) {
+  for (let i = backStack.length - 1; i >= 0; i--) if (backStack[i].id === id) {
+    backStack.splice(i, 1); ignorePops++; try { history.back(); } catch (e) { ignorePops--; } return;
+  }
+}
+addEventListener('popstate', () => { if (ignorePops > 0) { ignorePops--; return; } const e = backStack.pop(); if (e) e.fn(); });
+
+let sheetOpen = false;
 function openSheet(html, onMount) {
   const root = $('sheet-root');
+  if (!sheetOpen) { sheetOpen = true; pushBack('sheet', () => closeSheet(true)); }
   root.innerHTML = `<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`;
   $('scrim').addEventListener('click', e => { if (e.target.id === 'scrim') closeSheet(); });
   onMount && onMount(root);
 }
-function closeSheet() { catalogOpen = false; $('sheet-root').innerHTML = ''; }
+function closeSheet(fromBack) {
+  catalogOpen = false; $('sheet-root').innerHTML = '';
+  if (sheetOpen) { sheetOpen = false; if (fromBack !== true) dropBack('sheet'); }
+}
 
 /* ---------- produtos por secção ---------- */
 let catalogOpen = false, catFilter = '', catMode = 'meus';
@@ -536,8 +552,16 @@ $('add-form').addEventListener('submit', e => {
   inp.value = ''; selIdx = -1; showSugg();
 });
 $('add-input').addEventListener('input', () => { selIdx = -1; showSugg(); });
-$('add-input').addEventListener('focus', showSugg);
-$('add-input').addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== $('add-input')) $('sugg').hidden = true; }, 150));
+let suggBack = false;
+$('add-input').addEventListener('focus', () => {
+  if (!suggBack) { suggBack = true; pushBack('sugg', () => { suggBack = false; $('sugg').hidden = true; $('add-input').blur(); }); }
+  showSugg();
+});
+$('add-input').addEventListener('blur', () => setTimeout(() => {
+  if (document.activeElement === $('add-input')) return;
+  $('sugg').hidden = true;
+  if (suggBack) { suggBack = false; dropBack('sugg'); }
+}, 150));
 $('add-input').addEventListener('keydown', e => {
   if (!suggList.length) return;
   if (e.key === 'ArrowDown') { e.preventDefault(); selIdx = (selIdx + 1) % suggList.length; showSugg(); }
